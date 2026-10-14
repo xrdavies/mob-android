@@ -60,10 +60,19 @@ class ChatStore(private val scope: CoroutineScope, private val prefs: SharedPref
     private var poll: Job? = null
     private var listPoll: Job? = null
 
+    /** The running turn followed over GET /tasks/{id}/events, if any. */
+    private var stream: Job? = null
+    private var streamTask: String? = null
+
+    /** True while the machine's global event stream is connected; polling then only backs it up. */
+    var live = false
+
     fun attach(client: ApiClient, machine: String, enabled: Boolean) {
         generation++
         poll?.cancel()
         listPoll?.cancel()
+        stopStream()
+        live = false
         api = client.takeIf { enabled }
         machineId = machine
         _sessions.value = emptyList()
@@ -75,7 +84,7 @@ class ChatStore(private val scope: CoroutineScope, private val prefs: SharedPref
         listPoll = scope.launch {
             while (isActive && gen == generation) {
                 loadSessions()
-                delay(10_000)
+                delay(if (live) 60_000 else 10_000)
             }
         }
         open(prefs.getString(key(), null))
@@ -137,6 +146,7 @@ class ChatStore(private val scope: CoroutineScope, private val prefs: SharedPref
         _cancelling.value = false
         prefs.edit().putString(key(), id).apply()
         poll?.cancel()
+        stopStream()
         if (id == null) return
         _loading.value = true
         follow(id)
@@ -153,8 +163,14 @@ class ChatStore(private val scope: CoroutineScope, private val prefs: SharedPref
                 try {
                     val d = client.api.getSession(id)
                     if (gen != generation || _currentId.value != id) break
-                    _detail.value = ChatDetail(d.session, d.tasks.orEmpty(), d.activities.orEmpty(), d.questions.orEmpty())
+                    val fresh = ChatDetail(d.session, d.tasks.orEmpty(), d.activities.orEmpty(), d.questions.orEmpty())
+                    val shown = _detail.value
+                    // A snapshot fetched before newer stream events must not replace them.
+                    val stale = shown != null && shown.current?.id == fresh.current?.id && fresh.busy &&
+                        (fresh.current?.eventId ?: 0) < (shown.current?.eventId ?: 0)
+                    if (!stale) _detail.value = fresh
                     if (_detail.value?.busy != true) _cancelling.value = false
+                    followTurn(client, gen)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -168,13 +184,135 @@ class ChatStore(private val scope: CoroutineScope, private val prefs: SharedPref
                     if (first) _loading.value = false
                     first = false
                 }
-                delay(if (_detail.value?.busy == true) 1500 else 8000)
+                delay(
+                    when {
+                        stream != null -> 30_000L
+                        _detail.value?.busy == true -> 2_000L
+                        live -> 60_000L
+                        else -> 8_000L
+                    }
+                )
             }
         }
     }
 
     /** Re-reads the open conversation now (after an action) without clearing it. */
     private fun reload() = _currentId.value?.let(::follow)
+
+    private fun stopStream() {
+        stream?.cancel()
+        stream = null
+        streamTask = null
+    }
+
+    /** Streams the open chat's running turn so replies and steps appear as they happen. */
+    private fun followTurn(client: ApiClient, gen: Int) {
+        val task = _detail.value?.current?.takeIf { Status.busy(it.status) }
+        if (task == null) return stopStream()
+        if (streamTask == task.id && stream?.isActive == true) return
+        stopStream()
+        streamTask = task.id
+        stream = scope.launch {
+            var failures = 0
+            while (isActive && gen == generation && streamTask == task.id) {
+                val after = _detail.value?.current?.takeIf { it.id == task.id }?.eventId ?: 0
+                try {
+                    client.streamClient.sse(client.url("tasks/${task.id}/events?after=$after")).collect { e ->
+                        failures = 0
+                        val ev = runCatching { ApiClient.gson.fromJson(e.data, TaskEvent::class.java) }.getOrNull() ?: return@collect
+                        if (gen == generation) applyTaskEvent(task.id, e.type, ev)
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    failures++
+                }
+                // The stream ended or broke: a snapshot catches up, then it reconnects.
+                if (!isActive || streamTask != task.id) break
+                delay(minOf(30_000L, 1_000L shl minOf(failures, 5)))
+                if (_detail.value?.current?.takeIf { it.id == task.id }?.let { Status.busy(it.status) } != true) break
+            }
+        }
+    }
+
+    private fun <T> List<T>.upsert(item: T, key: (T) -> String): List<T> {
+        val i = indexOfFirst { key(it) == key(item) }
+        return if (i < 0) this + item else toMutableList().also { it[i] = item }
+    }
+
+    private fun applyTaskEvent(taskId: String, type: String, ev: TaskEvent) {
+        val d = _detail.value ?: return
+        val task = d.current?.takeIf { it.id == taskId } ?: return
+        if (ev.id <= (task.eventId ?: 0)) return
+        var t = task.copy(eventId = ev.id)
+        var session = d.session
+        var activities = d.activities
+        var questions = d.questions
+        when (type) {
+            "activity" -> ev.activity?.let { activities = activities.upsert(it) { a -> a.id } }
+            "question" -> ev.question?.let { questions = questions.upsert(it) { q -> q.id } }
+            "usage" -> t = t.copy(usage = ev.usage ?: t.usage)
+            "message" -> if (ev.messageId != null && ev.message != null) {
+                // Messages the user added mid-turn already carry their full ID.
+                val user = ev.role == "user"
+                val m = Message(if (user) ev.messageId else "$taskId:${ev.messageId}", taskId, if (user) "user" else "assistant", ev.message, ev.timestamp)
+                session = session.copy(messages = session.messages.orEmpty().upsert(m) { it.id })
+            }
+            "error" -> ev.message?.let { _error.value = it }
+        }
+        if (ev.status != null) {
+            t = t.copy(
+                status = ev.status,
+                error = if (ev.status == Status.FAILED) ev.message else null,
+                startedAt = t.startedAt ?: ev.timestamp.takeIf { ev.status == Status.RUNNING },
+                finishedAt = t.finishedAt ?: ev.timestamp.takeIf { Status.terminal(ev.status) },
+                queuePosition = if (ev.status == Status.RUNNING) null else t.queuePosition,
+            )
+            session = session.copy(status = ev.status)
+        }
+        _detail.value = ChatDetail(session, d.tasks.map { if (it.id == taskId) t else it }, activities, questions)
+        if (Status.terminal(ev.status)) {
+            _cancelling.value = false
+            stopStream()
+            reload()
+            refreshSessions()
+        }
+    }
+
+    /** A session summary from the machine's global stream. */
+    fun applySession(s: Session) {
+        val byRecent = compareByDescending<Session> { it.pinned == true }.thenByDescending { it.updatedAt.orEmpty() }
+        if (s.archived == true) {
+            _sessions.value = _sessions.value.filterNot { it.id == s.id }
+            _archived.value = _archived.value?.upsert(s) { it.id }?.sortedWith(byRecent)
+        } else {
+            _sessions.value = _sessions.value.upsert(s) { it.id }.sortedWith(byRecent)
+            _archived.value = _archived.value?.filterNot { it.id == s.id }
+        }
+        val d = _detail.value ?: return
+        if (d.session.id != s.id) return
+        _detail.value = d.copy(
+            session = d.session.copy(
+                title = s.title, status = s.status, waiting = s.waiting, pinned = s.pinned,
+                archived = s.archived, activeTaskId = s.activeTaskId, updatedAt = s.updatedAt,
+            )
+        )
+        // A new turn (from another device) or a status change the turn stream did not deliver.
+        val newTurn = s.activeTaskId != null && s.activeTaskId != d.current?.id
+        if (newTurn || (stream == null && s.status != d.current?.status)) reload()
+    }
+
+    fun removeSession(id: String) {
+        _sessions.value = _sessions.value.filterNot { it.id == id }
+        _archived.value = _archived.value?.filterNot { it.id == id }
+        if (id == _currentId.value) open(null)
+    }
+
+    /** After the global stream reconnected past its buffer: refetch everything. */
+    fun refreshAll() {
+        refreshSessions()
+        reload()
+    }
 
     /** Starts a turn; [done] gets true once mobd accepted it (the composer then clears). */
     fun send(

@@ -8,7 +8,11 @@ import com.google.gson.reflect.TypeToken
 import com.xrdavies.mob.data.ApiClient
 import com.xrdavies.mob.data.Health
 import com.xrdavies.mob.data.Machine
+import com.xrdavies.mob.data.Session
+import com.xrdavies.mob.data.Status
 import com.xrdavies.mob.data.readable
+import com.xrdavies.mob.notify.Notifier
+import com.xrdavies.mob.notify.WatchService
 import com.xrdavies.mob.vnc.VncSession
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -18,7 +22,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.UUID
 
-class AppState(context: Context) : ViewModel() {
+class AppState(context: Context) : ViewModel(), MachineEvents {
+    private val appContext = context.applicationContext
     private val prefs = context.getSharedPreferences("mob", Context.MODE_PRIVATE)
     private val gson = Gson()
 
@@ -57,8 +62,26 @@ class AppState(context: Context) : ViewModel() {
     val chat = ChatStore(viewModelScope, prefs)
     private var healthJob: Job? = null
 
+    val notifier = Notifier(appContext)
+
+    /** Global event streams, one per machine, so every Mac can notify (not only the active one). */
+    private val watchers = mutableMapOf<String, MachineWatcher>()
+    private val liveMachines = mutableSetOf<String>()
+
+    /** An activity is on screen (set by MobApplication). */
+    var foreground = false
+
+    /** Keep watching in the background with a foreground service (Settings). */
+    private val _backgroundWatch = MutableStateFlow(prefs.getBoolean("backgroundWatch", true))
+    val backgroundWatch: StateFlow<Boolean> = _backgroundWatch
+
+    /** Bumped to bring the Chat tab to the front (notification taps). */
+    private val _showChat = MutableStateFlow(0)
+    val showChat: StateFlow<Int> = _showChat
+
     init {
         activate()
+        syncWatchers()
     }
 
     private fun loadMachines(): List<Machine> {
@@ -86,6 +109,7 @@ class AppState(context: Context) : ViewModel() {
         val m = activeMachine
         prefs.edit().putString("activeMachine", m?.id).apply()
         _apiClient = ApiClient(m?.mobdUrl.orEmpty())
+        chat.live = m?.id in liveMachines
         _health.value = null
         _isConnected.value = false
         _healthError.value = null
@@ -116,6 +140,7 @@ class AppState(context: Context) : ViewModel() {
             _activeMachineId.value = m.id
             activate()
         }
+        syncWatchers()
         return m.id
     }
 
@@ -128,6 +153,82 @@ class AppState(context: Context) : ViewModel() {
             _activeMachineId.value = updated.firstOrNull()?.id
             activate()
         }
+        syncWatchers()
+    }
+
+    /** Starts a watcher for each machine, and restarts one whose URL changed. */
+    private fun syncWatchers() {
+        val machines = _machines.value.associateBy { it.id }
+        watchers.entries.removeAll { (id, w) ->
+            (machines[id]?.mobdUrl != w.machine.mobdUrl).also { gone ->
+                if (gone) {
+                    w.job.cancel()
+                    liveMachines -= id
+                }
+            }
+        }
+        for (m in machines.values) if (m.id !in watchers) watchers[m.id] = MachineWatcher(m, viewModelScope, this)
+        updateBackgroundService()
+    }
+
+    fun setBackgroundWatch(on: Boolean) {
+        _backgroundWatch.value = on
+        prefs.edit().putBoolean("backgroundWatch", on).apply()
+        updateBackgroundService()
+    }
+
+    /** Runs the background service while it is wanted and there is something to watch. */
+    fun updateBackgroundService() {
+        if (_backgroundWatch.value && _machines.value.isNotEmpty()) {
+            if (foreground) WatchService.start(appContext)
+        } else WatchService.stop(appContext)
+    }
+
+    /** Opens a chat on a machine (from a notification). */
+    fun openChat(machineId: String, sessionId: String?) {
+        if (_machines.value.none { it.id == machineId }) return
+        selectMachine(machineId)
+        if (sessionId != null) chat.open(sessionId)
+        _showChat.value++
+    }
+
+    private fun isOpen(m: Machine, s: Session) = foreground && m.id == _activeMachineId.value && chat.currentId.value == s.id
+
+    override fun onSession(m: Machine, s: Session, before: Session?) {
+        if (m.id == _activeMachineId.value) chat.applySession(s)
+        val nowWaiting = s.waiting == true
+        when {
+            nowWaiting && before?.waiting != true -> if (!isOpen(m, s)) notifyQuestion(m, s)
+            !nowWaiting && before?.waiting == true -> notifier.answered(m, s)
+        }
+        val finished = (s.status == Status.SUCCEEDED || s.status == Status.FAILED) && Status.busy(before?.status)
+        if (finished && !isOpen(m, s)) notifier.finished(m, s, failed = s.status == Status.FAILED)
+    }
+
+    /** Fetches the pending question so the notification can show it. */
+    private fun notifyQuestion(m: Machine, s: Session) {
+        viewModelScope.launch {
+            val q = runCatching { ApiClient(m.mobdUrl).api.getSession(s.id) }.getOrNull()
+                ?.questions?.lastOrNull { it.isPending }
+            notifier.question(m, s, q?.isApproval == true, q?.text)
+        }
+    }
+
+    override fun onDeleted(m: Machine, id: String) {
+        if (m.id == _activeMachineId.value) chat.removeSession(id)
+    }
+
+    override fun onReset(m: Machine) {
+        if (m.id == _activeMachineId.value) chat.refreshAll()
+    }
+
+    override fun onLive(m: Machine, live: Boolean) {
+        if (live) liveMachines += m.id else liveMachines -= m.id
+        if (m.id != _activeMachineId.value) return
+        val was = chat.live
+        chat.live = live
+        // Reconnected: catch up on whatever happened while the stream was down.
+        if (live && !was) chat.refreshAll()
     }
 
     /**

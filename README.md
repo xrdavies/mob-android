@@ -17,7 +17,9 @@ Native Android app (Kotlin, Jetpack Compose) for [mob](https://github.com/xrdavi
 - **Timeline** like the desktop app: Markdown replies (copyable), agent steps (commands, tools, reasoning, plans, file changes, screenshots) folded into groups and expandable for details, per-turn footer with duration, tokens, cost, failure and Retry
 - **Question and approval cards** in the chat when the agent needs your input; settled ones show the answer
 - **Live desktop view**: a thumbnail drawer under the Chat top bar (hidden by default, toggled with the monitor button; always view-only) and a full-screen view with a **View / Control** switch (tap = click, long-press = right-click, drag = drag, on-screen keyboard). Uses mobd's `/vnc` relay and signs in to Screen Sharing as the Mac user from Settings → Desktop sign-in; without a sign-in it shows `/screen` snapshots
-- **Push notifications** for questions and completed tasks
+- **Live updates**: each machine's `/events` stream keeps the chat list current, and the open chat follows its running turn over `/tasks/{id}/events` (polling only as a fallback)
+- **Notifications** when the agent asks something or a task finishes or fails, for every machine in the list; tap to open the chat. Optional background watching (Settings → Notifications) keeps the streams open with a silent foreground-service notification, since there is no push service on an intranet
+- **Setup warnings**: mobd's readiness checks (Accessibility, Screen Recording, Screen Sharing, agent CLIs) show in the chat header and Settings
 - **No login required**: paste your office Mac's mobd URL and connect
 
 ## Setup

@@ -34,6 +34,14 @@ fun MobApp(appState: AppState) {
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
+    val showChat by appState.showChat.collectAsState()
+    LaunchedEffect(showChat) {
+        if (showChat > 0) {
+            drawer.close()
+            navController.go("chat")
+        }
+    }
+
     BackHandler(enabled = drawer.isOpen) { scope.launch { drawer.close() } }
 
     ModalNavigationDrawer(

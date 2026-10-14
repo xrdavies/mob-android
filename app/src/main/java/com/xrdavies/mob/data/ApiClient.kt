@@ -89,6 +89,11 @@ class ApiClient(baseUrl: String) {
 
     val baseUrl: HttpUrl = normalize(baseUrl)
 
+    /** For event streams: an idle stream sends nothing, so reads must not time out. */
+    val streamClient: OkHttpClient = okHttpClient.newBuilder().readTimeout(0, TimeUnit.SECONDS).build()
+
+    fun url(path: String): String = baseUrl.resolve(path).toString()
+
     private val retrofit = Retrofit.Builder()
         .baseUrl(this.baseUrl)
         .client(okHttpClient)
@@ -121,6 +126,8 @@ class ApiClient(baseUrl: String) {
     }
 
     companion object {
+        val gson = com.google.gson.Gson()
+
         // Used until the user enters a mobd URL; AppState makes no requests then.
         private const val PLACEHOLDER = "http://localhost/"
 

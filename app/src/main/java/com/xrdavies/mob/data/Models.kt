@@ -15,8 +15,23 @@ data class Health(
     val checks: Map<String, Check>?,
 ) {
     fun supports(feature: String) = features.orEmpty().contains(feature)
+
+    /** Readiness checks that failed (permissions, Screen Sharing, agent CLIs), as label to detail. */
+    val problems: List<Pair<String, String>>
+        get() = checks.orEmpty().filter { (_, c) -> !c.ok && c.unknown != true }.map { (k, c) ->
+            (CHECK_LABELS[k] ?: k) to c.detail.orEmpty()
+        }
     fun runner(name: String?): Runner? = runners.orEmpty().let { list -> list.firstOrNull { it.name == (name ?: runner) } ?: list.firstOrNull { it.default == true } }
 }
+
+private val CHECK_LABELS = mapOf(
+    "accessibility" to "Accessibility",
+    "screenRecording" to "Screen Recording",
+    "vnc" to "Screen Sharing",
+    "actuation" to "Desktop control",
+    "codex" to "Codex",
+    "claude" to "Claude Code",
+)
 
 data class Runner(
     val name: String,

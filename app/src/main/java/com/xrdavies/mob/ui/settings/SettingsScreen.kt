@@ -1,5 +1,7 @@
 package com.xrdavies.mob.ui.settings
 
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -11,11 +13,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -73,6 +80,8 @@ fun SettingsScreen(appState: AppState) {
                     Text("Add machine")
                 }
             }
+
+            NotificationsCard(appState)
 
             SettingsCard("About") {
                 Text("mob-android v0.1.0")
@@ -134,6 +143,19 @@ private fun StatusCard(appState: AppState) {
             )
         }
         error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+        health?.problems?.takeIf { it.isNotEmpty() }?.let { problems ->
+            Text("Needs attention on the office Mac", style = MaterialTheme.typography.labelLarge, color = Color(0xFFD97706))
+            problems.forEach { (label, detail) ->
+                Row {
+                    Icon(Icons.Filled.WarningAmber, null, Modifier.size(16.dp).padding(top = 2.dp), tint = Color(0xFFD97706))
+                    Spacer(Modifier.width(6.dp))
+                    Column {
+                        Text(label, style = MaterialTheme.typography.bodyMedium)
+                        if (detail.isNotBlank()) Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
         health?.let { h ->
             Text(
                 "Runners: " + h.runners.orEmpty().joinToString { r -> r.title + if (r.available == false) " (unavailable)" else "" }
@@ -142,6 +164,45 @@ private fun StatusCard(appState: AppState) {
             )
         }
         OutlinedButton(onClick = appState::checkHealth) { Text("Test connection") }
+    }
+}
+
+@Composable
+private fun NotificationsCard(appState: AppState) {
+    val context = LocalContext.current
+    val background by appState.backgroundWatch.collectAsState()
+    // Re-read when the screen comes back from system settings.
+    var allowed by remember { mutableStateOf(appState.notifier.allowed) }
+    val lifecycle = LocalLifecycleOwner.current
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_RESUME) allowed = appState.notifier.allowed }
+        lifecycle.lifecycle.addObserver(observer)
+        onDispose { lifecycle.lifecycle.removeObserver(observer) }
+    }
+    SettingsCard("Notifications") {
+        Text(
+            "Get notified when the agent asks you something or a task finishes, on every office Mac in the list.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        if (!allowed) {
+            Text("Notifications are off for mob.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            OutlinedButton(onClick = {
+                context.startActivity(
+                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }) { Text("Turn on notifications") }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Keep watching in the background", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Keeps the connection open while mob is closed. Android shows a silent notification while this is on.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = background, onCheckedChange = appState::setBackgroundWatch)
+        }
     }
 }
 

@@ -2,6 +2,7 @@ package com.xrdavies.mob.ui.chat
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -35,6 +36,7 @@ fun ChatScreen(appState: AppState, onOpenDrawer: () -> Unit, onOpenSettings: () 
     val loading by chat.loading.collectAsState()
     val error by chat.error.collectAsState()
     val isConnected by appState.isConnected.collectAsState()
+    val health by appState.health.collectAsState()
     val showDesktop by appState.showDesktopDrawer.collectAsState()
     val machines by appState.machines.collectAsState()
     val activeId by appState.activeMachineId.collectAsState()
@@ -63,6 +65,12 @@ fun ChatScreen(appState: AppState, onOpenDrawer: () -> Unit, onOpenSettings: () 
             followed = currentId
         } else if (atBottom) listState.animateScrollToItem(items.size - 1)
     }
+    // A new question always comes into view, even if it arrived while the app was in the background.
+    val pending = items.indexOfLast { it is TimelineItem.Ask && it.question.isPending }
+    val pendingId = items.getOrNull(pending)?.id
+    LaunchedEffect(pendingId) {
+        if (pendingId != null) listState.animateScrollToItem(items.size - 1)
+    }
     LiveViewDialog(appState)
 
     Scaffold(
@@ -83,6 +91,14 @@ fun ChatScreen(appState: AppState, onOpenDrawer: () -> Unit, onOpenSettings: () 
                                 machine?.name ?: "No office Mac", style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
                             )
+                            val problems = health?.problems.orEmpty()
+                            if (isConnected && problems.isNotEmpty()) {
+                                Text(
+                                    " · ${problems.size} setup issue" + if (problems.size > 1) "s" else "",
+                                    style = MaterialTheme.typography.bodySmall, color = Color(0xFFD97706), maxLines = 1,
+                                    modifier = Modifier.clickable(onClick = onOpenSettings),
+                                )
+                            }
                         }
                     }
                 },
