@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Archive
@@ -37,6 +38,12 @@ fun SessionDrawer(appState: AppState, onClose: () -> Unit, onManageMachines: () 
     var showArchived by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<Session?>(null) }
     var deleting by remember { mutableStateOf<Session?>(null) }
+    var query by remember { mutableStateOf("") }
+    val searching = query.isNotBlank()
+    // Search covers archived chats too, so load them once a search starts.
+    LaunchedEffect(searching) { if (searching) chat.loadArchived() }
+    val machines by appState.machines.collectAsState()
+    val activeId by appState.activeMachineId.collectAsState()
 
     val pinned = sessions.filter { it.pinned == true }
     val recent = sessions.filter { it.pinned != true }
@@ -56,7 +63,45 @@ fun SessionDrawer(appState: AppState, onClose: () -> Unit, onManageMachines: () 
             Spacer(Modifier.width(8.dp))
             Text("New chat")
         }
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            placeholder = { Text("Search chats") },
+            leadingIcon = { Icon(Icons.Filled.Search, null) },
+            trailingIcon = { if (searching) IconButton(onClick = { query = "" }) { Icon(Icons.Filled.Close, "Clear search") } },
+            singleLine = true,
+            shape = RoundedCornerShape(24.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+        )
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
+            if (searching) {
+                val q = query.trim()
+                val found = (sessions + archived.orEmpty()).distinctBy { it.id }.filter { it.displayTitle.contains(q, ignoreCase = true) }
+                val otherMachines = machines.filter { it.id != activeId && it.name.contains(q, ignoreCase = true) }
+                item { SectionLabel(if (found.isEmpty()) "No chats match" else "Chats") }
+                items(found, key = { "f" + it.id }) { s ->
+                    SessionRow(s, s.id == currentId, appState, { renaming = s }, { deleting = s }) {
+                        query = ""
+                        onClose()
+                    }
+                }
+                if (otherMachines.isNotEmpty()) {
+                    item { SectionLabel("Machines") }
+                    items(otherMachines, key = { "m" + it.id }) { m ->
+                        NavigationDrawerItem(
+                            label = { Text("Switch to ${m.name}") },
+                            icon = { Icon(Icons.Filled.DesktopMac, null) },
+                            selected = false,
+                            onClick = {
+                                appState.selectMachine(m.id)
+                                query = ""
+                            },
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                        )
+                    }
+                }
+                return@LazyColumn
+            }
             if (pinned.isNotEmpty()) {
                 item { SectionLabel("Pinned") }
                 items(pinned, key = { "p" + it.id }) { s ->
