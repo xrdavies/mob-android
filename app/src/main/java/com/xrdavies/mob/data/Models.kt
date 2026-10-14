@@ -50,9 +50,11 @@ data class Usage(
 
 data class Session(
     val id: String,
+    val title: String?,
     val runner: String,
     val resumeId: String?,
-    val messages: List<Message>,
+    // Only GET /sessions/{id} includes messages; the list omits them.
+    val messages: List<Message>?,
     val createdAt: String,
     val updatedAt: String
 )

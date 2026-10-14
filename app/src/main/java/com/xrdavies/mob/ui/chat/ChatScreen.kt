@@ -106,7 +106,7 @@ fun ChatScreen(appState: AppState) {
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(session!!.messages) { message ->
+                    items(session!!.messages.orEmpty()) { message ->
                         MessageBubble(message)
                     }
                 }
