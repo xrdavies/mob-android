@@ -52,6 +52,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -78,19 +79,19 @@ private fun RetainDesktop(appState: AppState) {
 }
 
 /**
- * Thumbnail under the Chat top bar (hidden by default; toggled from the top bar).
+ * Thumbnail under the Chat top bar, or beside the chat on tablets (hidden by default; toggled from the top bar).
  * Always view-only: tapping it opens the full-screen live view.
  */
 @Composable
-fun DesktopDrawer(appState: AppState, modifier: Modifier = Modifier) {
+fun DesktopDrawer(appState: AppState, modifier: Modifier = Modifier, maxHeight: Dp = 260.dp) {
     RetainDesktop(appState)
     val state by appState.vnc.state.collectAsState()
     val aspect = if (state.width > 0 && state.height > 0) state.width.toFloat() / state.height else 16f / 10f
-    Box(modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+    Box(modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.TopCenter) {
         Box(
             Modifier
                 .fillMaxWidth()
-                .heightIn(max = 260.dp)
+                .heightIn(max = maxHeight)
                 .aspectRatio(aspect)
                 .clip(RoundedCornerShape(12.dp))
                 .clickable { appState.openLiveView() }

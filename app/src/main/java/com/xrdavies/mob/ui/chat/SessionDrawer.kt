@@ -28,9 +28,12 @@ import com.xrdavies.mob.data.Status
 import com.xrdavies.mob.ui.common.relativeTime
 import com.xrdavies.mob.viewmodel.AppState
 
-/** Chat list for the active machine, with the machine switcher on top. */
+/**
+ * Chat list for the active machine, with the machine switcher on top.
+ * A modal drawer on phones; [permanent] keeps it beside the chat on tablets.
+ */
 @Composable
-fun SessionDrawer(appState: AppState, onClose: () -> Unit, onManageMachines: () -> Unit) {
+fun SessionDrawer(appState: AppState, onClose: () -> Unit, onManageMachines: () -> Unit, permanent: Boolean = false) {
     val chat = appState.chat
     val sessions by chat.sessions.collectAsState()
     val archived by chat.archived.collectAsState()
@@ -48,7 +51,10 @@ fun SessionDrawer(appState: AppState, onClose: () -> Unit, onManageMachines: () 
     val pinned = sessions.filter { it.pinned == true }
     val recent = sessions.filter { it.pinned != true }
 
-    ModalDrawerSheet(Modifier.widthIn(max = 320.dp)) {
+    val sheet: @Composable (@Composable ColumnScope.() -> Unit) -> Unit =
+        if (permanent) { content -> PermanentDrawerSheet(Modifier.width(300.dp), content = content) }
+        else { content -> ModalDrawerSheet(Modifier.widthIn(max = 320.dp), content = content) }
+    sheet {
         MachineSwitcher(appState, onManageMachines)
         HorizontalDivider()
         FilledTonalButton(

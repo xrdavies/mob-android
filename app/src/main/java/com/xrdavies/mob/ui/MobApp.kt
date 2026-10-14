@@ -9,6 +9,8 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -45,66 +47,91 @@ fun MobApp(appState: AppState) {
 
     BackHandler(enabled = drawer.isOpen) { scope.launch { drawer.close() } }
 
-    ModalNavigationDrawer(
-        drawerState = drawer,
-        gesturesEnabled = route == "chat",
-        drawerContent = {
-            SessionDrawer(
-                appState,
-                onClose = { scope.launch { drawer.close() } },
-                onManageMachines = {
-                    scope.launch { drawer.close() }
-                    navController.go("settings")
-                },
-            )
-        },
-    ) {
-        Scaffold(
-            bottomBar = {
-                NavigationBar {
-                    NavigationBarItem(
-                        icon = {
-                            BadgedBox(badge = { if (waiting > 0) Badge { Text("$waiting") } }) {
-                                Icon(Icons.AutoMirrored.Filled.Chat, if (waiting > 0) "Chat, $waiting waiting for you" else "Chat")
-                            }
-                        },
-                        label = { Text("Chat") },
-                        selected = route == "chat",
-                        onClick = { navController.go("chat") },
-                    )
-                    NavigationBarItem(
-                        icon = { Icon(Icons.AutoMirrored.Filled.List, "Tasks") },
-                        label = { Text("Tasks") },
-                        selected = route == "tasks",
-                        onClick = { navController.go("tasks") },
-                    )
-                    NavigationBarItem(
-                        icon = { Icon(Icons.Filled.Settings, "Settings") },
-                        label = { Text("Settings") },
-                        selected = route == "settings",
-                        onClick = { navController.go("settings") },
+    val destinations = listOf(
+        Triple("chat", "Chat", Icons.AutoMirrored.Filled.Chat),
+        Triple("tasks", "Tasks", Icons.AutoMirrored.Filled.List),
+        Triple("settings", "Settings", Icons.Filled.Settings),
+    )
+    val navIcon: @Composable (String, String, ImageVector) -> Unit = { r, label, icon ->
+        if (r == "chat") {
+            BadgedBox(badge = { if (waiting > 0) Badge { Text("$waiting") } }) {
+                Icon(icon, if (waiting > 0) "$label, $waiting waiting for you" else label)
+            }
+        } else Icon(icon, label)
+    }
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // Tablets: a navigation rail and the chat list beside the chat instead of the bottom bar and drawer.
+        val wide = maxWidth >= 600.dp
+        val content: @Composable (Modifier) -> Unit = { modifier ->
+            NavHost(navController, startDestination = "chat", modifier = modifier) {
+                composable("chat") {
+                    ChatScreen(
+                        appState,
+                        onOpenDrawer = if (wide) null else ({ scope.launch { drawer.open() } }),
+                        onOpenSettings = { navController.go("settings") },
                     )
                 }
+                composable("tasks") {
+                    TasksScreen(appState, onOpenChat = { id ->
+                        appState.chat.open(id)
+                        navController.go("chat")
+                    })
+                }
+                composable("settings") { SettingsScreen(appState) }
             }
-        ) { padding ->
-            Box(Modifier.padding(padding)) {
-                NavHost(navController, startDestination = "chat") {
-                    composable("chat") {
-                        ChatScreen(
-                            appState,
-                            onOpenDrawer = { scope.launch { drawer.open() } },
-                            onOpenSettings = { navController.go("settings") },
+        }
+
+        if (wide) {
+            Row(Modifier.fillMaxSize()) {
+                NavigationRail {
+                    Spacer(Modifier.height(8.dp))
+                    destinations.forEach { (r, label, icon) ->
+                        NavigationRailItem(
+                            icon = { navIcon(r, label, icon) },
+                            label = { Text(label) },
+                            selected = route == r,
+                            onClick = { navController.go(r) },
                         )
                     }
-                    composable("tasks") {
-                        TasksScreen(appState, onOpenChat = { id ->
-                            appState.chat.open(id)
-                            navController.go("chat")
-                        })
-                    }
-                    composable("settings") { SettingsScreen(appState) }
                 }
+                if (route == "chat") {
+                    SessionDrawer(appState, onClose = {}, onManageMachines = { navController.go("settings") }, permanent = true)
+                    VerticalDivider()
+                }
+                content(Modifier.weight(1f).fillMaxHeight())
             }
+            return@BoxWithConstraints
+        }
+
+        ModalNavigationDrawer(
+            drawerState = drawer,
+            gesturesEnabled = route == "chat",
+            drawerContent = {
+                SessionDrawer(
+                    appState,
+                    onClose = { scope.launch { drawer.close() } },
+                    onManageMachines = {
+                        scope.launch { drawer.close() }
+                        navController.go("settings")
+                    },
+                )
+            },
+        ) {
+            Scaffold(
+                bottomBar = {
+                    NavigationBar {
+                        destinations.forEach { (r, label, icon) ->
+                            NavigationBarItem(
+                                icon = { navIcon(r, label, icon) },
+                                label = { Text(label) },
+                                selected = route == r,
+                                onClick = { navController.go(r) },
+                            )
+                        }
+                    }
+                }
+            ) { padding -> content(Modifier.padding(padding)) }
         }
     }
 }

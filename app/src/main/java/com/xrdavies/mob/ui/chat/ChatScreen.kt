@@ -20,7 +20,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.min
 import com.xrdavies.mob.data.TimelineItem
 import com.xrdavies.mob.data.buildTimeline
 import com.xrdavies.mob.ui.desktop.DesktopDrawer
@@ -29,7 +31,7 @@ import com.xrdavies.mob.viewmodel.AppState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatScreen(appState: AppState, onOpenDrawer: () -> Unit, onOpenSettings: () -> Unit) {
+fun ChatScreen(appState: AppState, onOpenDrawer: (() -> Unit)?, onOpenSettings: () -> Unit) {
     val chat = appState.chat
     val detail by chat.detail.collectAsState()
     val currentId by chat.currentId.collectAsState()
@@ -80,7 +82,8 @@ fun ChatScreen(appState: AppState, onOpenDrawer: () -> Unit, onOpenSettings: () 
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    IconButton(onClick = onOpenDrawer) {
+                    // No drawer button when the chat list stays beside the chat (tablets).
+                    if (onOpenDrawer != null) IconButton(onClick = onOpenDrawer) {
                         BadgedBox(badge = { if (waitingCount > 0) Badge { Text("$waitingCount") } }) { Icon(Icons.Filled.Menu, "Chats") }
                     }
                 },
@@ -128,28 +131,39 @@ fun ChatScreen(appState: AppState, onOpenDrawer: () -> Unit, onOpenSettings: () 
             )
         }
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            AnimatedVisibility(visible = showDesktop && machine != null) { DesktopDrawer(appState) }
+        BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
+            // Wide screens show the desktop in a column beside the chat, like the desktop app.
+            val side = maxWidth >= 720.dp
+            val paneWidth = min(maxWidth * 0.4f, 520.dp)
+            Row(Modifier.fillMaxSize()) {
+                Column(Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    AnimatedVisibility(visible = !side && showDesktop && machine != null) { DesktopDrawer(appState) }
 
-            Box(Modifier.weight(1f).fillMaxWidth()) {
-                when {
-                    machine == null -> EmptyState("Add your office Mac to start", "Settings → Machines → Add machine") {
-                        Button(onClick = onOpenSettings) { Text("Open Settings") }
+                    Box(Modifier.weight(1f).widthIn(max = 840.dp).fillMaxWidth()) {
+                        when {
+                            machine == null -> EmptyState("Add your office Mac to start", "Settings → Machines → Add machine") {
+                                Button(onClick = onOpenSettings) { Text("Open Settings") }
+                            }
+                            currentId == null -> EmptyState("New chat on ${machine.name}", "Ask the agent to do something on the office Mac")
+                            detail == null && loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                            else -> LazyColumn(
+                                state = listState,
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                items(items, key = { it.id }) { TimelineRow(it, appState, detail?.session?.runner, it.id == lastFooter) }
+                            }
+                        }
                     }
-                    currentId == null -> EmptyState("New chat on ${machine.name}", "Ask the agent to do something on the office Mac")
-                    detail == null && loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                    else -> LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        items(items, key = { it.id }) { TimelineRow(it, appState, detail?.session?.runner, it.id == lastFooter) }
-                    }
+
+                    if (machine != null) Box(Modifier.widthIn(max = 840.dp)) { Composer(appState) }
+                }
+                if (side && showDesktop && machine != null) {
+                    VerticalDivider()
+                    DesktopDrawer(appState, Modifier.width(paneWidth), maxHeight = Dp.Unspecified)
                 }
             }
-
-            if (machine != null) Composer(appState)
         }
     }
 }
