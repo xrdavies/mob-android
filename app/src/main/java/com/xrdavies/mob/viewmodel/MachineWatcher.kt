@@ -3,6 +3,7 @@ package com.xrdavies.mob.viewmodel
 import com.xrdavies.mob.data.ApiClient
 import com.xrdavies.mob.data.Machine
 import com.xrdavies.mob.data.OPEN
+import com.xrdavies.mob.data.Queue
 import com.xrdavies.mob.data.Session
 import com.xrdavies.mob.data.sse
 import kotlinx.coroutines.CoroutineScope
@@ -18,6 +19,8 @@ interface MachineEvents {
     fun onDeleted(m: Machine, id: String)
     fun onReset(m: Machine)
     fun onLive(m: Machine, live: Boolean)
+    /** Turns waiting for the desktop on this machine (all chats). */
+    fun onQueue(m: Machine, queued: Int)
 }
 
 /**
@@ -50,6 +53,9 @@ class MachineWatcher(val machine: Machine, scope: CoroutineScope, private val ev
                             known.remove(s.id)
                             events.onDeleted(machine, s.id)
                         }
+                        "queue" -> runCatching { ApiClient.gson.fromJson(e.data, Queue::class.java) }.getOrNull()?.let {
+                            events.onQueue(machine, it.queued.orEmpty().size)
+                        }
                         "reset" -> {
                             seed(client)
                             events.onReset(machine)
@@ -71,5 +77,6 @@ class MachineWatcher(val machine: Machine, scope: CoroutineScope, private val ev
         val list = client.api.listSessions("all").sessions.orEmpty()
         known.clear()
         list.forEach { known[it.id] = it }
+        runCatching { client.api.queue() }.getOrNull()?.let { events.onQueue(machine, it.queued.orEmpty().size) }
     }
 }

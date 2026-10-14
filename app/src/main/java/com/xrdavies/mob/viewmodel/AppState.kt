@@ -68,6 +68,10 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     private val watchers = mutableMapOf<String, MachineWatcher>()
     private val liveMachines = mutableSetOf<String>()
 
+    /** Turns waiting for the desktop, per machine (all chats on it). */
+    private val _queued = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val queued: StateFlow<Map<String, Int>> = _queued
+
     /** An activity is on screen (set by MobApplication). */
     var foreground = false
 
@@ -220,6 +224,10 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
 
     override fun onReset(m: Machine) {
         if (m.id == _activeMachineId.value) chat.refreshAll()
+    }
+
+    override fun onQueue(m: Machine, queued: Int) {
+        _queued.value = _queued.value + (m.id to queued)
     }
 
     override fun onLive(m: Machine, live: Boolean) {

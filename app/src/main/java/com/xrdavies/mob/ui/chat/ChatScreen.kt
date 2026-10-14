@@ -37,6 +37,7 @@ fun ChatScreen(appState: AppState, onOpenDrawer: () -> Unit, onOpenSettings: () 
     val error by chat.error.collectAsState()
     val isConnected by appState.isConnected.collectAsState()
     val health by appState.health.collectAsState()
+    val queued by appState.queued.collectAsState()
     val showDesktop by appState.showDesktopDrawer.collectAsState()
     val machines by appState.machines.collectAsState()
     val activeId by appState.activeMachineId.collectAsState()
@@ -91,6 +92,10 @@ fun ChatScreen(appState: AppState, onOpenDrawer: () -> Unit, onOpenSettings: () 
                                 machine?.name ?: "No office Mac", style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
                             )
+                            val waiting = queued[machine?.id] ?: 0
+                            if (waiting > 0) {
+                                Text(" · queue $waiting", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                            }
                             val problems = health?.problems.orEmpty()
                             if (isConnected && problems.isNotEmpty()) {
                                 Text(

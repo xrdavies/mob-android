@@ -224,9 +224,10 @@ private fun MachineSwitcher(appState: AppState, onManageMachines: () -> Unit) {
             Icon(Icons.Filled.UnfoldMore, "Switch machine")
         }
         DropdownMenu(open, onDismissRequest = { open = false }) {
+            val queued by appState.queued.collectAsState()
             machines.forEach { m ->
                 DropdownMenuItem(
-                    text = { Text(m.name) },
+                    text = { Text(m.name + (queued[m.id]?.takeIf { it > 0 }?.let { " · queue $it" } ?: "")) },
                     leadingIcon = { if (m.id == activeId) Icon(Icons.Filled.Check, null) else Spacer(Modifier.size(24.dp)) },
                     onClick = {
                         open = false
