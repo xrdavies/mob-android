@@ -1,6 +1,8 @@
 package com.xrdavies.mob.ui.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
@@ -10,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.xrdavies.mob.viewmodel.AppState
 
@@ -21,6 +24,10 @@ fun SettingsScreen(appState: AppState) {
     val health by appState.health.collectAsState()
     
     var urlInput by remember { mutableStateOf(mobdUrl) }
+    val vncUsername by appState.vncUsername.collectAsState()
+    val vncPassword by appState.vncPassword.collectAsState()
+    var userInput by remember(vncUsername) { mutableStateOf(vncUsername) }
+    var passwordInput by remember(vncPassword) { mutableStateOf(vncPassword) }
     
     LaunchedEffect(mobdUrl) {
         urlInput = mobdUrl
@@ -40,6 +47,7 @@ fun SettingsScreen(appState: AppState) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
@@ -147,6 +155,54 @@ fun SettingsScreen(appState: AppState) {
                 }
             }
             
+            // Desktop sign-in section
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        "Desktop sign-in",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    OutlinedTextField(
+                        value = userInput,
+                        onValueChange = { userInput = it },
+                        label = { Text("Mac user name") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = passwordInput,
+                        onValueChange = { passwordInput = it },
+                        label = { Text("Mac password") },
+                        modifier = Modifier.fillMaxWidth(),
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        singleLine = true
+                    )
+                    Text(
+                        "Used by the live view to sign in to Screen Sharing as this user (like Screen Sharing.app). Stored on this phone only. Without it the desktop shows mobd snapshots.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Button(
+                        onClick = { appState.updateVncCredentials(userInput.trim(), passwordInput) },
+                        enabled = userInput.trim() != vncUsername || passwordInput != vncPassword
+                    ) {
+                        Text("Save")
+                    }
+                }
+            }
+
             // About section
             Card(
                 modifier = Modifier.fillMaxWidth(),

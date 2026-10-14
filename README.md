@@ -13,7 +13,7 @@ Native Android app (Kotlin, Jetpack Compose) for [mob](https://github.com/xrdavi
 - **Chat with your office agent** (Codex or Claude Code)
 - **Task timeline** with live status updates
 - **Question cards** when the agent needs your input
-- **Live desktop view** (optional drawer; VNC over WebSocket)
+- **Live desktop view**: a thumbnail drawer under the Chat top bar (hidden by default, toggled with the monitor button; always view-only) and a full-screen view with a **View / Control** switch (tap = click, long-press = right-click, drag = drag, on-screen keyboard). Uses mobd's `/vnc` relay and signs in to Screen Sharing as the Mac user from Settings → Desktop sign-in; without a sign-in it shows `/screen` snapshots
 - **Push notifications** for questions and completed tasks
 - **No login required**: paste your office Mac's mobd URL and connect
 
@@ -39,7 +39,7 @@ adb shell am start -n com.xrdavies.mob/.MainActivity
 - **Jetpack Compose** for all UI
 - **Kotlin Coroutines** + **Flow** for async/reactive state
 - **Retrofit** + **OkHttp** for HTTP + Server-Sent Events
-- **OkHttp WebSocket** for `/vnc` connection
+- **Native VNC client** (`vnc/`): RFB 3.8 over an OkHttp WebSocket to `/vnc`, Apple Remote Desktop sign-in (type 30), ZRLE / CopyRect / Raw; ported from [svnc](https://github.com/xrdavies/svnc)
 - **MVVM**: `ApiClient` → `ChatViewModel` / `TaskViewModel` → Composables
 - **Navigation Compose** for bottom nav + drawer
 

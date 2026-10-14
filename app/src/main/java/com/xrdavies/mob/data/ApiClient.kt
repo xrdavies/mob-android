@@ -1,8 +1,15 @@
 package com.xrdavies.mob.data
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
+import java.io.IOException
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.*
@@ -39,13 +46,15 @@ interface MobApi {
 }
 
 class ApiClient(baseUrl: String) {
-    private val okHttpClient = OkHttpClient.Builder()
+    val okHttpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
-    
+
+    val baseUrl: HttpUrl = normalize(baseUrl)
+
     private val retrofit = Retrofit.Builder()
-        .baseUrl(normalize(baseUrl))
+        .baseUrl(this.baseUrl)
         .client(okHttpClient)
         .addConverterFactory(GsonConverterFactory.create())
         .build()
@@ -54,6 +63,26 @@ class ApiClient(baseUrl: String) {
     
     fun updateBaseUrl(newUrl: String): ApiClient {
         return ApiClient(newUrl)
+    }
+
+    /** mobd's VNC relay: ws://host:port/vnc (wss for https). */
+    val vncUrl: String
+        get() = baseUrl.resolve("vnc").toString().replaceFirst("http", "ws")
+
+    /** A desktop snapshot from GET /screen, scaled down to [maxWidth]. */
+    suspend fun screen(maxWidth: Int): Bitmap = withContext(Dispatchers.IO) {
+        val url = baseUrl.newBuilder().addPathSegment("screen")
+            .addQueryParameter("maxWidth", maxWidth.toString())
+            .addQueryParameter("quality", "70")
+            .build()
+        okHttpClient.newCall(Request.Builder().url(url).build()).execute().use { r ->
+            val body = r.body ?: throw IOException("Empty response")
+            if (!r.isSuccessful) {
+                val text = body.string()
+                throw IOException(runCatching { JSONObject(text).getString("error") }.getOrDefault("HTTP ${r.code}"))
+            }
+            BitmapFactory.decodeStream(body.byteStream()) ?: throw IOException("Not an image")
+        }
     }
 
     companion object {

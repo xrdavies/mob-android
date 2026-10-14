@@ -1,5 +1,6 @@
 package com.xrdavies.mob.ui.chat
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -7,6 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DesktopMac
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,6 +17,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.xrdavies.mob.data.Message
+import com.xrdavies.mob.ui.desktop.DesktopDrawer
+import com.xrdavies.mob.ui.desktop.LiveViewDialog
 import com.xrdavies.mob.viewmodel.AppState
 import com.xrdavies.mob.viewmodel.ChatViewModel
 import kotlinx.coroutines.launch
@@ -26,6 +30,7 @@ fun ChatScreen(appState: AppState) {
     val session by viewModel.session.collectAsState()
     val activeQuestion by viewModel.activeQuestion.collectAsState()
     val isConnected by appState.isConnected.collectAsState()
+    val showDesktop by appState.showDesktopDrawer.collectAsState()
     
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -48,6 +53,8 @@ fun ChatScreen(appState: AppState) {
             onDismiss = { }
         )
     }
+
+    LiveViewDialog(appState)
     
     Scaffold(
         topBar = {
@@ -57,6 +64,14 @@ fun ChatScreen(appState: AppState) {
                     containerColor = MaterialTheme.colorScheme.primaryContainer
                 ),
                 actions = {
+                    IconButton(onClick = appState::toggleDesktopDrawer) {
+                        Icon(
+                            Icons.Default.DesktopMac,
+                            if (showDesktop) "Hide desktop" else "Show desktop",
+                            tint = if (showDesktop) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(end = 8.dp)
@@ -84,6 +99,10 @@ fun ChatScreen(appState: AppState) {
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            AnimatedVisibility(visible = showDesktop) {
+                DesktopDrawer(appState)
+            }
+
             if (session == null) {
                 Box(
                     modifier = Modifier
