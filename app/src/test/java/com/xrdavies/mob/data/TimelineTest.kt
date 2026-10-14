@@ -42,3 +42,22 @@ class TimelineTest {
         assertTrue((items[2] as TimelineItem.Working).waiting)
     }
 }
+
+class ClickMarkerTest {
+    private fun act(id: String, tool: String, status: String = "completed", args: Map<String, Any?>? = null, text: String? = null) = Activity(
+        id, "t", "tool", status, id, null, tool, args, null, null, text, null, null, null, null, null, null, null,
+    )
+
+    @Test
+    fun findsLatestClickAndScreenSize() {
+        val acts = listOf(
+            act("s1", "screenshot", text = """{"point_width":1512,"point_height":982,"pixel_width":3024}"""),
+            act("c1", "click", args = mapOf("x" to 10.0, "y" to 20.0)),
+            act("c2", "click", args = mapOf("x" to 400.0, "y" to 300.0)),
+            act("c3", "click", status = "failed", args = mapOf("x" to 1.0, "y" to 1.0)),
+        )
+        assertEquals(AgentClick("c2", 400.0, 300.0), latestClick(acts))
+        assertEquals(ScreenGeometry(1512, 982), screenGeometry(acts))
+        assertEquals(null, screenGeometry(listOf(act("s", "screenshot", text = "not json"))))
+    }
+}

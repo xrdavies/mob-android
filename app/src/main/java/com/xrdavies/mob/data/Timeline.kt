@@ -97,3 +97,33 @@ fun buildTimeline(tasks: List<Task>, messages: List<Message>, activities: List<A
     }
     return items
 }
+
+/** Desktop size in points, from the most recent screenshot step's metadata. */
+data class ScreenGeometry(val pointWidth: Int, val pointHeight: Int)
+
+@Suppress("PropertyName")
+private class ScreenshotMeta(val point_width: Int?, val point_height: Int?)
+
+fun screenGeometry(activities: List<Activity>): ScreenGeometry? {
+    for (a in activities.asReversed()) {
+        if (a.tool != "screenshot" || a.text.isNullOrBlank()) continue
+        val meta = runCatching { ApiClient.gson.fromJson(a.text, ScreenshotMeta::class.java) }.getOrNull() ?: continue
+        val w = meta.point_width ?: 0
+        val h = meta.point_height ?: 0
+        if (w > 0 && h > 0) return ScreenGeometry(w, h)
+    }
+    return null
+}
+
+/** The agent's last completed click, in desktop points. */
+data class AgentClick(val id: String, val x: Double, val y: Double)
+
+fun latestClick(activities: List<Activity>): AgentClick? {
+    for (a in activities.asReversed()) {
+        if (a.tool != "click" || a.status != "completed") continue
+        val x = (a.arguments?.get("x") as? Number)?.toDouble() ?: a.arguments?.get("x")?.toString()?.toDoubleOrNull()
+        val y = (a.arguments?.get("y") as? Number)?.toDouble() ?: a.arguments?.get("y")?.toString()?.toDoubleOrNull()
+        if (x != null && y != null && x.isFinite() && y.isFinite()) return AgentClick(a.id, x, y)
+    }
+    return null
+}

@@ -14,6 +14,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalClipboardManager
 import kotlinx.coroutines.withTimeoutOrNull
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import com.xrdavies.mob.data.latestClick
+import com.xrdavies.mob.data.screenGeometry
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
@@ -231,6 +235,14 @@ private fun DesktopCanvas(appState: AppState, snapshotWidth: Int, modifier: Modi
     var snapshot by remember { mutableStateOf<Bitmap?>(null) }
     var snapshotError by remember { mutableStateOf<String?>(null) }
 
+    // The agent's last click pings once on the picture, like the desktop app.
+    val detail by appState.chat.detail.collectAsState()
+    val activities = detail?.activities.orEmpty()
+    val click = remember(activities) { latestClick(activities) }
+    val geometry = remember(activities) { screenGeometry(activities) }
+    val ping = remember(click?.id) { Animatable(0f) }
+    LaunchedEffect(click?.id) { if (click != null) ping.animateTo(1f, tween(1600)) }
+
     LaunchedEffect(live) {
         if (live) return@LaunchedEffect
         while (isActive) {
@@ -253,12 +265,20 @@ private fun DesktopCanvas(appState: AppState, snapshotWidth: Int, modifier: Modi
             val s = min(size.width / bmp.width, size.height / bmp.height)
             val w = (bmp.width * s).roundToInt()
             val h = (bmp.height * s).roundToInt()
+            val left = ((size.width - w) / 2).roundToInt()
+            val top = ((size.height - h) / 2).roundToInt()
             drawImage(
                 bmp.asImageBitmap(),
-                dstOffset = IntOffset(((size.width - w) / 2).roundToInt(), ((size.height - h) / 2).roundToInt()),
+                dstOffset = IntOffset(left, top),
                 dstSize = IntSize(w, h),
                 filterQuality = FilterQuality.Medium,
             )
+            if (click != null && geometry != null && ping.value < 1f) {
+                val c = Offset(left + (click.x / geometry.pointWidth * w).toFloat(), top + (click.y / geometry.pointHeight * h).toFloat())
+                val t = ping.value
+                drawCircle(Color(0xFF3B82F6).copy(alpha = 1f - t), radius = (8 + 22 * t).dp.toPx(), center = c, style = Stroke(2.5.dp.toPx()))
+                drawCircle(Color(0xFF3B82F6).copy(alpha = 0.5f * (1f - t)), radius = 6.dp.toPx(), center = c)
+            }
         }
         if (!live && snapshot == null) {
             val text = when (state.status) {
