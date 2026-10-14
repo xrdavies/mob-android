@@ -130,6 +130,7 @@ data class Activity(
     val title: String,
     val server: String?,
     val tool: String?,
+    val arguments: Map<String, Any?>?,
     val command: String?,
     val exitCode: Int?,
     val text: String?,

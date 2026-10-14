@@ -20,7 +20,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.xrdavies.mob.data.Message
+import com.xrdavies.mob.data.TimelineItem
+import com.xrdavies.mob.data.buildTimeline
 import com.xrdavies.mob.ui.desktop.DesktopDrawer
 import com.xrdavies.mob.ui.desktop.LiveViewDialog
 import com.xrdavies.mob.viewmodel.AppState
@@ -47,14 +48,20 @@ fun ChatScreen(appState: AppState, onOpenDrawer: () -> Unit, onOpenSettings: () 
         }
     }
 
-    val messages = detail?.session?.messages.orEmpty()
-    val listState = rememberLazyListState()
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
+    val items = remember(detail) {
+        detail?.let { buildTimeline(it.tasks, it.session.messages.orEmpty(), it.activities, it.questions) }.orEmpty()
     }
-
-    detail?.questions?.firstOrNull { it.isPending }?.let { q ->
-        QuestionDialog(q, onAnswer = { answer, approved -> chat.answer(q, answer, approved) }, onDismiss = {})
+    val lastFooter = items.lastOrNull { it is TimelineItem.Footer }?.id
+    val listState = rememberLazyListState()
+    // Follow new output while the user is at the bottom; jump there when a chat opens.
+    val atBottom by remember { derivedStateOf { !listState.canScrollForward } }
+    var followed by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(items.size, items.lastOrNull(), currentId) {
+        if (items.isEmpty()) return@LaunchedEffect
+        if (followed != currentId) {
+            listState.scrollToItem(items.size - 1)
+            followed = currentId
+        } else if (atBottom) listState.animateScrollToItem(items.size - 1)
     }
     LiveViewDialog(appState)
 
@@ -111,7 +118,7 @@ fun ChatScreen(appState: AppState, onOpenDrawer: () -> Unit, onOpenSettings: () 
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        items(messages, key = { it.id }) { MessageBubble(it) }
+                        items(items, key = { it.id }) { TimelineRow(it, appState, detail?.session?.runner, it.id == lastFooter) }
                     }
                 }
             }
@@ -134,24 +141,6 @@ private fun EmptyState(title: String, hint: String, action: (@Composable () -> U
         if (action != null) {
             Spacer(Modifier.height(16.dp))
             action()
-        }
-    }
-}
-
-@Composable
-fun MessageBubble(message: Message) {
-    val assistant = message.role == "assistant"
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (assistant) Arrangement.Start else Arrangement.End) {
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = if (assistant) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.primary,
-            modifier = Modifier.widthIn(max = 300.dp),
-        ) {
-            Text(
-                text = message.content,
-                modifier = Modifier.padding(12.dp),
-                color = if (assistant) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onPrimary,
-            )
         }
     }
 }
