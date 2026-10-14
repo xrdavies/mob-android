@@ -10,6 +10,9 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.IOException
+import okhttp3.MultipartBody
+import retrofit2.HttpException
+import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.*
@@ -18,36 +21,69 @@ import java.util.concurrent.TimeUnit
 interface MobApi {
     @GET("health")
     suspend fun getHealth(): Health
-    
+
     @POST("tasks")
     suspend fun createTask(@Body request: CreateTaskRequest): Task
-    
+
+    @GET("tasks")
+    suspend fun listTasks(@Query("limit") limit: Int = 100, @Query("sessionId") sessionId: String? = null): TasksResponse
+
     @GET("tasks/{id}")
     suspend fun getTask(@Path("id") id: String): Task
-    
+
     @POST("tasks/{id}/cancel")
-    suspend fun cancelTask(@Path("id") id: String)
-    
+    suspend fun cancelTask(@Path("id") id: String): Response<Unit>
+
     @POST("tasks/{id}/steer")
-    suspend fun steerTask(@Path("id") id: String, @Body request: SteerRequest)
-    
+    suspend fun steerTask(@Path("id") id: String, @Body request: SteerRequest): Response<Unit>
+
+    @GET("queue")
+    suspend fun queue(): Queue
+
+    /** archived: "false" (default), "true" or "all". */
     @GET("sessions")
-    suspend fun listSessions(): SessionsResponse
-    
+    suspend fun listSessions(@Query("archived") archived: String = "false"): SessionsResponse
+
     @GET("sessions/{id}")
     suspend fun getSession(@Path("id") id: String): SessionDetail
-    
+
+    @PATCH("sessions/{id}")
+    suspend fun patchSession(@Path("id") id: String, @Body request: PatchSessionRequest): Session
+
+    @DELETE("sessions/{id}")
+    suspend fun deleteSession(@Path("id") id: String): Response<Unit>
+
     @POST("tasks/{taskId}/questions/{questionId}/answer")
     suspend fun answerQuestion(
         @Path("taskId") taskId: String,
         @Path("questionId") questionId: String,
         @Body request: AnswerQuestionRequest
-    )
+    ): Response<Unit>
+
+    @Multipart
+    @POST("uploads")
+    suspend fun upload(@Part file: MultipartBody.Part): Upload
+}
+
+/** mobd answers errors as {"error": "..."}; turns a failed Response into a readable exception. */
+fun <T> Response<T>.orThrow(): Response<T> {
+    if (isSuccessful) return this
+    val text = errorBody()?.string().orEmpty()
+    throw IOException(runCatching { JSONObject(text).getString("error") }.getOrDefault("HTTP ${code()}"))
+}
+
+/** A readable message for any request failure, including Retrofit HTTP errors. */
+fun Throwable.readable(): String = when (this) {
+    is HttpException -> response()?.errorBody()?.string()
+        ?.let { runCatching { JSONObject(it).getString("error") }.getOrNull() } ?: "HTTP ${code()}"
+    is java.net.ConnectException, is java.net.UnknownHostException -> "Cannot reach mobd"
+    is java.net.SocketTimeoutException -> "mobd did not answer in time"
+    else -> message ?: javaClass.simpleName
 }
 
 class ApiClient(baseUrl: String) {
     val okHttpClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
@@ -61,9 +97,8 @@ class ApiClient(baseUrl: String) {
     
     val api: MobApi = retrofit.create(MobApi::class.java)
     
-    fun updateBaseUrl(newUrl: String): ApiClient {
-        return ApiClient(newUrl)
-    }
+    /** Absolute URL of a stored screenshot or upload. */
+    fun artifactUrl(id: String): String = baseUrl.resolve("artifacts/$id").toString()
 
     /** mobd's VNC relay: ws://host:port/vnc (wss for https). */
     val vncUrl: String

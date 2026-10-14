@@ -47,7 +47,7 @@ fun QuestionDialog(
                             }
                         }
                     }
-                    question.allowText -> {
+                    question.allowText == true -> {
                         OutlinedTextField(
                             value = textAnswer,
                             onValueChange = { textAnswer = it },
@@ -64,7 +64,7 @@ fun QuestionDialog(
                 Button(onClick = { onAnswer(null, true) }) {
                     Text("Approve")
                 }
-            } else if (question.allowText) {
+            } else if (question.allowText == true) {
                 Button(
                     onClick = { onAnswer(textAnswer, null) },
                     enabled = textAnswer.isNotBlank()

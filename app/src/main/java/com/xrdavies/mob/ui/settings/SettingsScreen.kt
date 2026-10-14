@@ -1,11 +1,16 @@
 package com.xrdavies.mob.ui.settings
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -13,219 +18,167 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.xrdavies.mob.data.Machine
 import com.xrdavies.mob.viewmodel.AppState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(appState: AppState) {
-    val mobdUrl by appState.mobdUrl.collectAsState()
-    val isConnected by appState.isConnected.collectAsState()
-    val health by appState.health.collectAsState()
-    
-    var urlInput by remember { mutableStateOf(mobdUrl) }
-    val vncUsername by appState.vncUsername.collectAsState()
-    val vncPassword by appState.vncPassword.collectAsState()
-    var userInput by remember(vncUsername) { mutableStateOf(vncUsername) }
-    var passwordInput by remember(vncPassword) { mutableStateOf(vncPassword) }
-    
-    LaunchedEffect(mobdUrl) {
-        urlInput = mobdUrl
-    }
-    
+    val machines by appState.machines.collectAsState()
+    val activeId by appState.activeMachineId.collectAsState()
+    var editing by remember { mutableStateOf<Machine?>(null) }
+    var deleting by remember { mutableStateOf<Machine?>(null) }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Settings") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                )
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
             )
         }
     ) { padding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
+            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // Status section
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        "Status",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    
+            StatusCard(appState)
+
+            SettingsCard("Machines") {
+                if (machines.isEmpty()) {
+                    Text("No office Mac yet. Add the mobd URL of the Mac that runs the agent.", style = MaterialTheme.typography.bodyMedium)
+                }
+                machines.forEach { m ->
                     Row(
+                        Modifier.fillMaxWidth().clickable { appState.selectMachine(m.id) },
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(12.dp)
-                                .background(
-                                    if (isConnected) Color.Green else Color.Red,
-                                    shape = CircleShape
-                                )
-                        )
-                        Text(
-                            if (isConnected) "Connected" else "Not connected",
-                            color = if (isConnected) Color.Green else Color.Red
-                        )
-                    }
-                    
-                    if (health != null) {
-                        Text("Default runner: ${health?.runner ?: "—"}")
-                        health?.runners?.let { runners ->
-                            if (runners.isNotEmpty()) {
-                                Text("Runners: ${runners.size}")
-                            }
+                        RadioButton(selected = m.id == activeId, onClick = { appState.selectMachine(m.id) })
+                        Column(Modifier.weight(1f)) {
+                            Text(m.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                m.mobdUrl + if (m.vncUsername.isNotBlank()) " · sign-in as ${m.vncUsername}" else "",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
                         }
+                        IconButton(onClick = { editing = m }) { Icon(Icons.Filled.Edit, "Edit ${m.name}") }
+                        IconButton(onClick = { deleting = m }) { Icon(Icons.Filled.Delete, "Delete ${m.name}") }
                     }
                 }
-            }
-            
-            // Office Mac section
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        "Office Mac",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    
-                    OutlinedTextField(
-                        value = urlInput,
-                        onValueChange = { urlInput = it },
-                        label = { Text("mobd URL") },
-                        placeholder = { Text("http://192.168.1.100:8080") },
-                        modifier = Modifier.fillMaxWidth(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                        singleLine = true
-                    )
-                    
-                    Text(
-                        "Enter your office Mac's mobd URL (e.g. http://192.168.1.100:8080 or via Tailscale)",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                appState.updateMobdUrl(urlInput.trim())
-                            },
-                            enabled = urlInput.trim() != mobdUrl
-                        ) {
-                            Text("Save")
-                        }
-                        
-                        Button(
-                            onClick = { appState.checkHealth() }
-                        ) {
-                            Text("Test Connection")
-                        }
-                    }
-                }
-            }
-            
-            // Desktop sign-in section
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        "Desktop sign-in",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    OutlinedTextField(
-                        value = userInput,
-                        onValueChange = { userInput = it },
-                        label = { Text("Mac user name") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = passwordInput,
-                        onValueChange = { passwordInput = it },
-                        label = { Text("Mac password") },
-                        modifier = Modifier.fillMaxWidth(),
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        singleLine = true
-                    )
-                    Text(
-                        "Used by the live view to sign in to Screen Sharing as this user (like Screen Sharing.app). Stored on this phone only. Without it the desktop shows mobd snapshots.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Button(
-                        onClick = { appState.updateVncCredentials(userInput.trim(), passwordInput) },
-                        enabled = userInput.trim() != vncUsername || passwordInput != vncPassword
-                    ) {
-                        Text("Save")
-                    }
+                OutlinedButton(onClick = { editing = Machine(appState.newMachineId(), "", "") }) {
+                    Icon(Icons.Filled.Add, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Add machine")
                 }
             }
 
-            // About section
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        "About",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    
-                    Text("mob-android v0.1.0")
-                    Text("MIT License")
-                }
+            SettingsCard("About") {
+                Text("mob-android v0.1.0")
+                Text("MIT License", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
+
+    editing?.let { m ->
+        MachineDialog(
+            initial = m,
+            isNew = machines.none { it.id == m.id },
+            onSave = {
+                appState.saveMachine(it)
+                editing = null
+            },
+            onDismiss = { editing = null },
+        )
+    }
+    deleting?.let { m ->
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            title = { Text("Remove ${m.name}?") },
+            text = { Text("Only removes it from this phone. Chats stay on the office Mac.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    appState.deleteMachine(m.id)
+                    deleting = null
+                }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun SettingsCard(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            content()
+        }
+    }
+}
+
+@Composable
+private fun StatusCard(appState: AppState) {
+    val connected by appState.isConnected.collectAsState()
+    val health by appState.health.collectAsState()
+    val error by appState.healthError.collectAsState()
+    val activeId by appState.activeMachineId.collectAsState()
+    if (activeId == null) return
+    SettingsCard("Status") {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(Modifier.size(12.dp).background(if (connected) Color(0xFF22C55E) else Color(0xFFEF4444), CircleShape))
+            Text(
+                if (connected) "Connected to ${appState.activeMachine?.name}" else "Not connected",
+                color = if (connected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
+            )
+        }
+        error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+        health?.let { h ->
+            Text(
+                "Runners: " + h.runners.orEmpty().joinToString { r -> r.title + if (r.available == false) " (unavailable)" else "" }
+                    .ifBlank { h.runner ?: "—" },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        OutlinedButton(onClick = appState::checkHealth) { Text("Test connection") }
+    }
+}
+
+@Composable
+private fun MachineDialog(initial: Machine, isNew: Boolean, onSave: (Machine) -> Unit, onDismiss: () -> Unit) {
+    var name by remember { mutableStateOf(initial.name) }
+    var url by remember { mutableStateOf(initial.mobdUrl) }
+    var user by remember { mutableStateOf(initial.vncUsername) }
+    var password by remember { mutableStateOf(initial.vncPassword) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (isNew) "Add machine" else "Edit machine") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(name, { name = it }, label = { Text("Name") }, placeholder = { Text("Office Mac") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    url, { url = it }, label = { Text("mobd URL") }, placeholder = { Text("http://192.168.1.100:8080") },
+                    singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), modifier = Modifier.fillMaxWidth(),
+                )
+                Text("Desktop sign-in (optional)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                OutlinedTextField(user, { user = it }, label = { Text("Mac user name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    password, { password = it }, label = { Text("Mac password") }, singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "Lets the live view sign in to Screen Sharing as this user. Stored on this phone only. Without it the desktop shows snapshots.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = url.isNotBlank(), onClick = {
+                onSave(initial.copy(name = name.trim().ifBlank { "Office Mac" }, mobdUrl = url.trim(), vncUsername = user.trim(), vncPassword = password))
+            }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }

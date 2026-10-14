@@ -10,6 +10,8 @@ Native Android app (Kotlin, Jetpack Compose) for [mob](https://github.com/xrdavi
 
 ## Features
 
+- **Several office Macs**: add, edit and switch machines (Settings → Machines, or the switcher at the top of the chat list); each has its own chats and desktop sign-in
+- **Chats**: chat list drawer with New chat, Pinned / Recent / Archived, and rename, pin, archive, delete per chat
 - **Chat with your office agent** (Codex or Claude Code)
 - **Task timeline** with live status updates
 - **Question cards** when the agent needs your input
@@ -23,7 +25,7 @@ Native Android app (Kotlin, Jetpack Compose) for [mob](https://github.com/xrdavi
 2. Open in Android Studio
 3. Sync Gradle and build
 4. Run on emulator or device
-5. In Settings, enter your office Mac's mobd URL (e.g. `http://192.168.1.100:8080` or via Tailscale; `http://` is added if omitted)
+5. In Settings → Machines, add your office Mac's mobd URL (e.g. `http://192.168.1.100:8080` or via Tailscale; `http://` is added if omitted)
 
 From the command line (Android Studio's bundled JDK works):
 
@@ -40,8 +42,8 @@ adb shell am start -n com.xrdavies.mob/.MainActivity
 - **Kotlin Coroutines** + **Flow** for async/reactive state
 - **Retrofit** + **OkHttp** for HTTP + Server-Sent Events
 - **Native VNC client** (`vnc/`): RFB 3.8 over an OkHttp WebSocket to `/vnc`, Apple Remote Desktop sign-in (type 30), ZRLE / CopyRect / Raw; ported from [svnc](https://github.com/xrdavies/svnc)
-- **MVVM**: `ApiClient` → `ChatViewModel` / `TaskViewModel` → Composables
-- **Navigation Compose** for bottom nav + drawer
+- **State**: `AppState` (machines, health, live view) owns one `ChatStore` (chat list and the open conversation) for the active machine; both live in `MobApplication`
+- **Navigation Compose** for the bottom bar; a modal drawer for the chat list
 
 ## License
 

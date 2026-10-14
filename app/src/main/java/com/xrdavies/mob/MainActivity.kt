@@ -9,12 +9,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import com.xrdavies.mob.ui.MobApp
 import com.xrdavies.mob.ui.theme.MobTheme
-import com.xrdavies.mob.viewmodel.AppState
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val appState = AppState(applicationContext)
+        val appState = (application as MobApplication).appState
         
         setContent {
             MobTheme {
