@@ -68,6 +68,16 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     private val watchers = mutableMapOf<String, MachineWatcher>()
     private val liveMachines = mutableSetOf<String>()
 
+    /** Chats waiting for an answer, per machine; the badge counts them all. */
+    private val _waiting = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
+    val waitingCount: StateFlow<Int> get() = _waitingCount
+    private val _waitingCount = MutableStateFlow(0)
+
+    private fun setWaiting(machine: String, update: (Set<String>) -> Set<String>) {
+        _waiting.value = _waiting.value + (machine to update(_waiting.value[machine].orEmpty()))
+        _waitingCount.value = _waiting.value.values.sumOf { it.size }
+    }
+
     /** Turns waiting for the desktop, per machine (all chats on it). */
     private val _queued = MutableStateFlow<Map<String, Int>>(emptyMap())
     val queued: StateFlow<Map<String, Int>> = _queued
@@ -151,6 +161,7 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     fun deleteMachine(id: String) {
         val updated = _machines.value.filterNot { it.id == id }
         _machines.value = updated
+        setWaiting(id) { emptySet() }
         saveMachines(updated)
         prefs.edit().remove("session.$id").apply()
         if (id == _activeMachineId.value) {
@@ -198,7 +209,12 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
 
     private fun isOpen(m: Machine, s: Session) = foreground && m.id == _activeMachineId.value && chat.currentId.value == s.id
 
+    override fun onSeed(m: Machine, sessions: List<Session>) {
+        setWaiting(m.id) { sessions.filter { it.waiting == true }.map { it.id }.toSet() }
+    }
+
     override fun onSession(m: Machine, s: Session, before: Session?) {
+        setWaiting(m.id) { if (s.waiting == true) it + s.id else it - s.id }
         if (m.id == _activeMachineId.value) chat.applySession(s)
         val nowWaiting = s.waiting == true
         when {
@@ -215,11 +231,12 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
         viewModelScope.launch {
             val q = runCatching { ApiClient(m.mobdUrl).api.getSession(s.id) }.getOrNull()
                 ?.questions?.lastOrNull { it.isPending }
-            notifier.question(m, s, q?.isApproval == true, q?.text)
+            notifier.question(m, s, q?.isApproval == true, q?.text, _waitingCount.value)
         }
     }
 
     override fun onDeleted(m: Machine, id: String) {
+        setWaiting(m.id) { it - id }
         if (m.id == _activeMachineId.value) chat.removeSession(id)
     }
 

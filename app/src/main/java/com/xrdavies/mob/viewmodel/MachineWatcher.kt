@@ -20,6 +20,8 @@ interface MachineEvents {
     fun onDeleted(m: Machine, id: String)
     fun onReset(m: Machine)
     fun onLive(m: Machine, live: Boolean)
+    /** Every chat on the machine, after (re)connecting. */
+    fun onSeed(m: Machine, sessions: List<Session>)
     /** Turns waiting for the desktop on this machine (all chats). */
     fun onQueue(m: Machine, queued: Int)
 }
@@ -81,6 +83,7 @@ class MachineWatcher(val machine: Machine, scope: CoroutineScope, private val ev
         val list = client.api.listSessions("all").sessions.orEmpty()
         known.clear()
         list.forEach { known[it.id] = it }
+        events.onSeed(machine, list)
         runCatching { client.api.queue() }.getOrNull()?.let { events.onQueue(machine, it.queued.orEmpty().size) }
     }
 }

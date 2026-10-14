@@ -50,7 +50,7 @@ class Notifier(private val context: Context) {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
-    private fun post(id: Int, channel: String, title: String, text: String, m: Machine, s: Session) {
+    private fun post(id: Int, channel: String, title: String, text: String, m: Machine, s: Session, number: Int = 0) {
         if (!allowed) return
         val n = NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
@@ -61,6 +61,8 @@ class Notifier(private val context: Context) {
             .setAutoCancel(true)
             .setPriority(if (channel == QUESTIONS) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
             .setContentIntent(openChat(m.id, s.id, id))
+            // Launchers that show badges use this as the app icon's count.
+            .apply { if (number > 0) setNumber(number) }
             .build()
         com.xrdavies.mob.viewmodel.Log.add("notification: $title — $text")
         try {
@@ -70,9 +72,9 @@ class Notifier(private val context: Context) {
         }
     }
 
-    fun question(m: Machine, s: Session, approval: Boolean, text: String?) {
+    fun question(m: Machine, s: Session, approval: Boolean, text: String?, waiting: Int = 0) {
         cancel(m, s, "done")
-        post(id(m, s, "ask"), QUESTIONS, if (approval) "Approval needed" else "The agent asks", text ?: s.displayTitle, m, s)
+        post(id(m, s, "ask"), QUESTIONS, if (approval) "Approval needed" else "The agent asks", text ?: s.displayTitle, m, s, waiting)
     }
 
     fun finished(m: Machine, s: Session, failed: Boolean) {

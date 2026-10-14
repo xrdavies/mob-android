@@ -38,6 +38,7 @@ fun ChatScreen(appState: AppState, onOpenDrawer: () -> Unit, onOpenSettings: () 
     val isConnected by appState.isConnected.collectAsState()
     val health by appState.health.collectAsState()
     val queued by appState.queued.collectAsState()
+    val waitingCount by appState.waitingCount.collectAsState()
     val showDesktop by appState.showDesktopDrawer.collectAsState()
     val machines by appState.machines.collectAsState()
     val activeId by appState.activeMachineId.collectAsState()
@@ -78,7 +79,11 @@ fun ChatScreen(appState: AppState, onOpenDrawer: () -> Unit, onOpenSettings: () 
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                navigationIcon = { IconButton(onClick = onOpenDrawer) { Icon(Icons.Filled.Menu, "Chats") } },
+                navigationIcon = {
+                    IconButton(onClick = onOpenDrawer) {
+                        BadgedBox(badge = { if (waitingCount > 0) Badge { Text("$waitingCount") } }) { Icon(Icons.Filled.Menu, "Chats") }
+                    }
+                },
                 title = {
                     Column {
                         Text(

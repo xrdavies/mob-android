@@ -35,6 +35,7 @@ fun MobApp(appState: AppState) {
     val scope = rememberCoroutineScope()
 
     val showChat by appState.showChat.collectAsState()
+    val waiting by appState.waitingCount.collectAsState()
     LaunchedEffect(showChat) {
         if (showChat > 0) {
             drawer.close()
@@ -62,7 +63,11 @@ fun MobApp(appState: AppState) {
             bottomBar = {
                 NavigationBar {
                     NavigationBarItem(
-                        icon = { Icon(Icons.AutoMirrored.Filled.Chat, "Chat") },
+                        icon = {
+                            BadgedBox(badge = { if (waiting > 0) Badge { Text("$waiting") } }) {
+                                Icon(Icons.AutoMirrored.Filled.Chat, if (waiting > 0) "Chat, $waiting waiting for you" else "Chat")
+                            }
+                        },
                         label = { Text("Chat") },
                         selected = route == "chat",
                         onClick = { navController.go("chat") },
