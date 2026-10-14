@@ -67,6 +67,7 @@ class VncSession {
     fun setControl(on: Boolean) {
         val connected = _state.value.status == VncStatus.Connected
         _state.value = _state.value.copy(control = on && connected)
+        if (!on) _modifiers.value = emptySet()
     }
 
     fun click(x: Int, y: Int, button: Int = BUTTON_LEFT) {
@@ -79,22 +80,55 @@ class VncSession {
         if (_state.value.control) conn?.rfb?.pointer(x, y, buttons)
     }
 
-    fun tapKey(keysym: Int) {
-        val rfb = controlled() ?: return
+    /** Modifiers latched from the keys bar; they apply to the next key, then release. */
+    private val _modifiers = MutableStateFlow<Set<Int>>(emptySet())
+    val modifiers: StateFlow<Set<Int>> = _modifiers
+
+    fun toggleModifier(keysym: Int) {
+        _modifiers.value = _modifiers.value.let { if (keysym in it) it - keysym else it + keysym }
+    }
+
+    /** Presses [keysym] with the latched modifiers (plus [extra]), then releases everything. */
+    private fun press(rfb: Rfb, keysym: Int, extra: Set<Int> = emptySet()) {
+        val mods = _modifiers.value + extra
+        mods.forEach { rfb.key(it, true) }
         rfb.key(keysym, true)
         rfb.key(keysym, false)
+        mods.reversed().forEach { rfb.key(it, false) }
+        if (_modifiers.value.isNotEmpty()) _modifiers.value = emptySet()
+    }
+
+    fun tapKey(keysym: Int) {
+        val rfb = controlled() ?: return
+        press(rfb, keysym)
     }
 
     /** Types one character from the phone's keyboard. */
     fun type(c: Char) {
         val rfb = controlled() ?: return
-        if (c == '\n') return tapKey(XK_RETURN)
+        if (c == '\n') return press(rfb, XK_RETURN)
         val keysym = if (c.code < 0x100) c.code else 0x01000000 or c.code
-        val shift = c.isUpperCase() || c in SHIFTED
-        if (shift) rfb.key(XK_SHIFT_L, true)
-        rfb.key(keysym, true)
-        rfb.key(keysym, false)
-        if (shift) rfb.key(XK_SHIFT_L, false)
+        // With a latched modifier (⌘C) the key goes as its plain letter.
+        val shortcut = _modifiers.value.isNotEmpty()
+        val shift = !shortcut && (c.isUpperCase() || c in SHIFTED)
+        press(rfb, if (shortcut) c.lowercaseChar().code else keysym, if (shift) setOf(XK_SHIFT_L) else emptySet())
+    }
+
+    /** Types text from the phone's clipboard (no shared clipboard with the Mac). */
+    fun typeText(text: String) {
+        if (controlled() == null) return
+        text.take(MAX_PASTE).forEach { type(it) }
+    }
+
+    /** Scroll wheel: one notch per step; negative dy scrolls up, negative dx left. */
+    fun scroll(x: Int, y: Int, dx: Int, dy: Int) {
+        val rfb = controlled() ?: return
+        fun notch(mask: Int, n: Int) = repeat(n) {
+            rfb.pointer(x, y, mask)
+            rfb.pointer(x, y, 0)
+        }
+        if (dy != 0) notch(if (dy < 0) WHEEL_UP else WHEEL_DOWN, kotlin.math.abs(dy))
+        if (dx != 0) notch(if (dx < 0) WHEEL_LEFT else WHEEL_RIGHT, kotlin.math.abs(dx))
     }
 
     private fun controlled(): Rfb? = if (_state.value.control) conn?.rfb else null
@@ -219,9 +253,26 @@ class VncSession {
     companion object {
         const val BUTTON_LEFT = 1
         const val BUTTON_RIGHT = 4
+        const val WHEEL_UP = 1 shl 3
+        const val WHEEL_DOWN = 1 shl 4
+        const val WHEEL_LEFT = 1 shl 5
+        const val WHEEL_RIGHT = 1 shl 6
+        private const val MAX_PASTE = 5000
+
         const val XK_BACKSPACE = 0xff08
+        const val XK_TAB = 0xff09
         const val XK_RETURN = 0xff0d
+        const val XK_ESCAPE = 0xff1b
+        const val XK_DELETE = 0xffff
+        const val XK_LEFT = 0xff51
+        const val XK_UP = 0xff52
+        const val XK_RIGHT = 0xff53
+        const val XK_DOWN = 0xff54
         const val XK_SHIFT_L = 0xffe1
+        const val XK_CONTROL_L = 0xffe3
+        /** macOS Screen Sharing maps Meta to Command (as svnc and the desktop app send it). */
+        const val XK_META_L = 0xffe7
+        const val XK_ALT_L = 0xffe9
         private const val SHIFTED = "~!@#$%^&*()_+{}|:\"<>?"
     }
 }

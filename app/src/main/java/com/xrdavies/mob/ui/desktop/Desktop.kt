@@ -4,7 +4,16 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalClipboardManager
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
@@ -119,6 +128,8 @@ private fun LiveView(appState: AppState) {
     val control = state.control
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
+    // Where the last touch reached the Mac, in desktop pixels.
+    var mark by remember { mutableStateOf<IntOffset?>(null) }
     val keyboardFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
 
@@ -132,12 +143,6 @@ private fun LiveView(appState: AppState) {
                 StatusChip(appState)
                 Spacer(Modifier.weight(1f))
                 if (live) {
-                    if (control) {
-                        IconButton(onClick = {
-                            keyboardFocus.requestFocus()
-                            keyboard?.show()
-                        }) { Icon(Icons.Filled.Keyboard, "Keyboard", tint = Color.White) }
-                    }
                     ModeSwitch(control) { vnc.setControl(it) }
                 } else if (state.status != VncStatus.Connecting) {
                     TextButton(onClick = appState::connectDesktop) { Text("Reconnect", color = Color.White) }
@@ -166,6 +171,19 @@ private fun LiveView(appState: AppState) {
                             offset = Offset.Zero
                         })
                     }
+                    .then(
+                        if (control) Modifier.controlGestures(
+                            vnc, state.width, state.height,
+                            view = { scale to offset },
+                            onZoom = { zoom, pan, size ->
+                                scale = (scale * zoom).coerceIn(1f, 6f)
+                                val maxX = (scale - 1) * size.width / 2
+                                val maxY = (scale - 1) * size.height / 2
+                                offset = Offset((offset.x + pan.x).coerceIn(-maxX, maxX), (offset.y + pan.y).coerceIn(-maxY, maxY))
+                            },
+                            onTouch = { mark = it },
+                        ) else Modifier
+                    )
             ) {
                 Box(
                     Modifier
@@ -176,15 +194,20 @@ private fun LiveView(appState: AppState) {
                             translationX = offset.x
                             translationY = offset.y
                         }
-                        .then(if (control) Modifier.controlInput(vnc, state.width, state.height) else Modifier)
                 ) {
                     DesktopCanvas(appState, snapshotWidth = 1600, Modifier.fillMaxSize())
+                    if (control) mark?.let { TouchMarker(it, state.width, state.height, scale) }
                 }
+            }
+
+            if (control) KeysBar(vnc) {
+                keyboardFocus.requestFocus()
+                keyboard?.show()
             }
 
             Text(
                 when {
-                    control -> "Tap to click · long-press to right-click · drag to drag"
+                    control -> "Tap = click · long-press = right-click · drag · two fingers: scroll or pinch to zoom"
                     live -> "View only · pinch to zoom · switch to Control to use the Mac"
                     state.status == VncStatus.Connecting -> "View only · connecting the live view…"
                     else -> "View only snapshot · " + state.detail.ifBlank { "live view not connected" }
@@ -292,35 +315,163 @@ private fun ModeSwitch(control: Boolean, onChange: (Boolean) -> Unit) {
     }
 }
 
-/** Maps touches on the fitted desktop to Mac pointer events (Control mode only). */
-private fun Modifier.controlInput(vnc: VncSession, fw: Int, fh: Int): Modifier {
+/** Maps a point in the view box (screen space, before zoom) to desktop pixels. */
+internal fun toDesktop(p: Offset, size: IntSize, fw: Int, fh: Int, scale: Float, offset: Offset): IntOffset {
+    val cx = size.width / 2f
+    val cy = size.height / 2f
+    val lx = cx + (p.x - cx - offset.x) / scale
+    val ly = cy + (p.y - cy - offset.y) / scale
+    val s = min(size.width.toFloat() / fw, size.height.toFloat() / fh)
+    val x = ((lx - (size.width - fw * s) / 2) / s).roundToInt().coerceIn(0, fw - 1)
+    val y = ((ly - (size.height - fh * s) / 2) / s).roundToInt().coerceIn(0, fh - 1)
+    return IntOffset(x, y)
+}
+
+/**
+ * Control-mode touches: tap = click, long-press = right-click, one-finger drag = mouse drag,
+ * two fingers = scroll wheel, or zoom the view when they pinch.
+ */
+private fun Modifier.controlGestures(
+    vnc: VncSession,
+    fw: Int,
+    fh: Int,
+    view: () -> Pair<Float, Offset>,
+    onZoom: (Float, Offset, IntSize) -> Unit,
+    onTouch: (IntOffset) -> Unit,
+): Modifier {
     if (fw <= 0 || fh <= 0) return this
-    fun IntSize.map(p: Offset): Pair<Int, Int> {
-        val s = min(width.toFloat() / fw, height.toFloat() / fh)
-        val x = ((p.x - (width - fw * s) / 2) / s).roundToInt().coerceIn(0, fw - 1)
-        val y = ((p.y - (height - fh * s) / 2) / s).roundToInt().coerceIn(0, fh - 1)
-        return x to y
-    }
     return pointerInput(fw, fh) {
-        detectTapGestures(
-            onTap = { p -> size.map(p).let { (x, y) -> vnc.click(x, y) } },
-            onLongPress = { p -> size.map(p).let { (x, y) -> vnc.click(x, y, VncSession.BUTTON_RIGHT) } },
-        )
-    }.pointerInput(fw, fh) {
-        var last = 0 to 0
-        detectDragGestures(
-            onDragStart = { p ->
-                last = size.map(p)
-                vnc.pointer(last.first, last.second, 0)
-                vnc.pointer(last.first, last.second, VncSession.BUTTON_LEFT)
-            },
-            onDrag = { change, _ ->
-                last = size.map(change.position)
-                vnc.pointer(last.first, last.second, VncSession.BUTTON_LEFT)
-            },
-            onDragEnd = { vnc.pointer(last.first, last.second, 0) },
-            onDragCancel = { vnc.pointer(last.first, last.second, 0) },
-        )
+        fun remote(p: Offset): IntOffset = view().let { (scale, off) -> toDesktop(p, size, fw, fh, scale, off) }
+        val step = 28.dp.toPx()
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            val slop = viewConfiguration.touchSlop
+            var mode = Gesture.Undecided
+            var last = remote(down.position)
+            var zoomed = 1f
+            var panned = Offset.Zero
+            var wheel = Offset.Zero
+            while (true) {
+                val event = if (mode == Gesture.Undecided) {
+                    withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) { awaitPointerEvent() }
+                } else awaitPointerEvent()
+                if (event == null) {
+                    // Held still: right-click, then wait for the finger to lift.
+                    last = remote(down.position)
+                    vnc.click(last.x, last.y, VncSession.BUTTON_RIGHT)
+                    onTouch(last)
+                    mode = Gesture.Done
+                    continue
+                }
+                val pressed = event.changes.filter { it.pressed }
+                if (pressed.isEmpty()) break
+                if (pressed.size >= 2 && mode in listOf(Gesture.Undecided, Gesture.TwoFinger, Gesture.Zoom, Gesture.Scroll)) {
+                    val zoom = event.calculateZoom()
+                    val pan = event.calculatePan()
+                    if (mode == Gesture.Undecided) mode = Gesture.TwoFinger
+                    if (mode == Gesture.TwoFinger) {
+                        zoomed *= zoom
+                        panned += pan
+                        if (kotlin.math.abs(zoomed - 1f) > 0.12f) mode = Gesture.Zoom
+                        else if (panned.getDistance() > slop) mode = Gesture.Scroll
+                    }
+                    when (mode) {
+                        Gesture.Zoom -> onZoom(zoom, pan, size)
+                        Gesture.Scroll -> {
+                            // Natural scrolling: fingers moving up scroll the page down.
+                            wheel -= pan
+                            val dx = (wheel.x / step).toInt()
+                            val dy = (wheel.y / step).toInt()
+                            if (dx != 0 || dy != 0) {
+                                val at = remote(event.calculateCentroid())
+                                vnc.scroll(at.x, at.y, dx, dy)
+                                wheel -= Offset(dx * step, dy * step)
+                            }
+                        }
+                        else -> Unit
+                    }
+                    event.changes.forEach { it.consume() }
+                    continue
+                }
+                val change = pressed.first()
+                if (mode == Gesture.Undecided && (change.position - down.position).getDistance() > slop) {
+                    mode = Gesture.Drag
+                    val start = remote(down.position)
+                    vnc.pointer(start.x, start.y, 0)
+                    vnc.pointer(start.x, start.y, VncSession.BUTTON_LEFT)
+                }
+                if (mode == Gesture.Drag) {
+                    last = remote(change.position)
+                    vnc.pointer(last.x, last.y, VncSession.BUTTON_LEFT)
+                    onTouch(last)
+                    change.consume()
+                }
+            }
+            when (mode) {
+                Gesture.Undecided -> {
+                    last = remote(down.position)
+                    vnc.click(last.x, last.y)
+                    onTouch(last)
+                }
+                Gesture.Drag -> vnc.pointer(last.x, last.y, 0)
+                else -> Unit
+            }
+        }
+    }
+}
+
+private enum class Gesture { Undecided, Drag, TwoFinger, Zoom, Scroll, Done }
+
+/** A ring where the last touch reached the Mac (the Mac draws its own pointer). */
+@Composable
+private fun TouchMarker(at: IntOffset, fw: Int, fh: Int, scale: Float) {
+    if (fw <= 0 || fh <= 0) return
+    Canvas(Modifier.fillMaxSize()) {
+        val s = min(size.width / fw, size.height / fh)
+        val c = Offset((size.width - fw * s) / 2 + at.x * s, (size.height - fh * s) / 2 + at.y * s)
+        val r = 9.dp.toPx() / scale
+        drawCircle(Color.White.copy(alpha = 0.9f), r, c, style = Stroke(2.dp.toPx() / scale))
+        drawCircle(Color(0xFF3B82F6).copy(alpha = 0.35f), r, c)
+    }
+}
+
+/** Keys the phone keyboard lacks: modifiers (latched for the next key), Esc, Tab, arrows, paste. */
+@Composable
+private fun KeysBar(vnc: VncSession, onKeyboard: () -> Unit) {
+    val mods by vnc.modifiers.collectAsState()
+    val clipboard = LocalClipboardManager.current
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        @Composable
+        fun Key(label: String, description: String, on: Boolean = false, onClick: () -> Unit) {
+            Text(
+                label,
+                color = if (on) Color.Black else Color.White,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (on) Color.White else Color.White.copy(alpha = 0.14f))
+                    .clickable(onClickLabel = description, onClick = onClick)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+        }
+        IconButton(onClick = onKeyboard, modifier = Modifier.size(36.dp)) { Icon(Icons.Filled.Keyboard, "Keyboard", tint = Color.White) }
+        listOf(
+            "⌘" to VncSession.XK_META_L, "⌥" to VncSession.XK_ALT_L,
+            "⌃" to VncSession.XK_CONTROL_L, "⇧" to VncSession.XK_SHIFT_L,
+        ).forEach { (label, sym) -> Key(label, "Hold $label for the next key", sym in mods) { vnc.toggleModifier(sym) } }
+        Key("esc", "Escape") { vnc.tapKey(VncSession.XK_ESCAPE) }
+        Key("tab", "Tab") { vnc.tapKey(VncSession.XK_TAB) }
+        Key("←", "Left") { vnc.tapKey(VncSession.XK_LEFT) }
+        Key("↑", "Up") { vnc.tapKey(VncSession.XK_UP) }
+        Key("↓", "Down") { vnc.tapKey(VncSession.XK_DOWN) }
+        Key("→", "Right") { vnc.tapKey(VncSession.XK_RIGHT) }
+        Key("⌫", "Delete") { vnc.tapKey(VncSession.XK_BACKSPACE) }
+        Key("⏎", "Return") { vnc.tapKey(VncSession.XK_RETURN) }
+        Key("Paste", "Type the phone's clipboard") { clipboard.getText()?.text?.let(vnc::typeText) }
     }
 }
 

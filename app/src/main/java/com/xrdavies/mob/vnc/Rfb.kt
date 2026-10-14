@@ -42,7 +42,7 @@ class Rfb(
         val chosen = when {
             signIn && ARD in types -> ARD
             NONE in types -> NONE
-            ARD in types -> throw RfbException("Enter the office Mac's user name and password in Settings → Desktop sign-in")
+            ARD in types -> throw RfbException("Enter the office Mac's user name and password in Settings → Machines → Edit (Desktop sign-in)")
             else -> throw RfbException("No supported sign-in method (server offers $types)")
         }
         send(byteArrayOf(chosen.toByte()))
