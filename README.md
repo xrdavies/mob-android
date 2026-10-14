@@ -5,7 +5,7 @@ Native Android app (Kotlin, Jetpack Compose) for [mob](https://github.com/xrdavi
 ## Requirements
 
 - Android 8.0+ (API level 26+)
-- Android Studio Hedgehog or later
+- Android Studio with an SDK for API 37 (builds with AGP 9.4, Gradle 9.6 wrapper, Kotlin 2.4, JDK 17+)
 - Office Mac running [mobd](https://github.com/xrdavies/mob/tree/main/cmd/mobd) (API v3) with Screen Sharing enabled
 
 ## Features
@@ -23,7 +23,16 @@ Native Android app (Kotlin, Jetpack Compose) for [mob](https://github.com/xrdavi
 2. Open in Android Studio
 3. Sync Gradle and build
 4. Run on emulator or device
-5. In Settings, enter your office Mac's mobd URL (e.g. `http://192.168.1.100:8080` or via Tailscale)
+5. In Settings, enter your office Mac's mobd URL (e.g. `http://192.168.1.100:8080` or via Tailscale; `http://` is added if omitted)
+
+From the command line (Android Studio's bundled JDK works):
+
+```bash
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+~/Library/Android/sdk/emulator/emulator -avd <avd-name> &   # list with: emulator -list-avds
+./gradlew installDebug
+adb shell am start -n com.xrdavies.mob/.MainActivity
+```
 
 ## Architecture
 
