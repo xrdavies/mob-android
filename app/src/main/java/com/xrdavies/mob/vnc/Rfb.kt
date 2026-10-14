@@ -17,7 +17,7 @@ data class Dirty(val x: Int, val y: Int, val w: Int, val h: Int) {
 class RfbException(message: String) : IOException(message)
 
 /**
- * RFB 3.8 client: handshake (None or Apple Remote Desktop sign-in), then framebuffer
+ * RFB 3.8 client: handshake (None, VNC password or Apple Remote Desktop sign-in), then framebuffer
  * updates and input. Blocking; runs on its own thread. Ported from svnc's session.
  */
 class Rfb(
@@ -38,15 +38,24 @@ class Rfb(
         val count = d.readUnsignedByte()
         if (count == 0) throw RfbException("Screen Sharing refused the connection: ${reason()}")
         val types = ByteArray(count).also(d::readFully).map { it.toInt() and 0xff }
-        val signIn = username.isNotEmpty() && password.isNotEmpty()
+        // Like svnc: a user name signs in to that user's session (ARD); a password alone uses
+        // classic VNC Authentication, which lands on the login window.
+        val hasPassword = password.isNotEmpty()
+        val signIn = username.isNotEmpty() && hasPassword
         val chosen = when {
             signIn && ARD in types -> ARD
+            hasPassword && VNC_AUTH in types -> VNC_AUTH
+            NONE in types && !hasPassword -> NONE
             NONE in types -> NONE
             ARD in types -> throw RfbException("Enter the office Mac's user name and password in Settings → Machines → Edit (Desktop sign-in)")
+            VNC_AUTH in types -> throw RfbException("Enter the Screen Sharing (VNC) password in Settings → Machines → Edit (Desktop sign-in)")
             else -> throw RfbException("No supported sign-in method (server offers $types)")
         }
         send(byteArrayOf(chosen.toByte()))
-        if (chosen == ARD) {
+        if (chosen == VNC_AUTH) {
+            val challenge = ByteArray(16).also(d::readFully)
+            send(VncAuth.response(password, challenge))
+        } else if (chosen == ARD) {
             val generator = d.readUnsignedShort()
             val keyLength = d.readUnsignedShort()
             val prime = ByteArray(keyLength).also(d::readFully)
@@ -55,7 +64,13 @@ class Rfb(
         }
         if (d.readInt() != 0) {
             val why = runCatching { reason() }.getOrDefault("")
-            throw RfbException(if (chosen == ARD) "Sign-in failed: check the Mac user name and password. $why".trim() else "Sign-in failed. $why".trim())
+            throw RfbException(
+                when (chosen) {
+                    ARD -> "Sign-in failed: check the Mac user name and password. $why"
+                    VNC_AUTH -> "Sign-in failed: check the Screen Sharing (VNC) password. $why"
+                    else -> "Sign-in failed. $why"
+                }.trim()
+            )
         }
 
         send(byteArrayOf(1)) // ClientInit: shared, so the agent's own session is not kicked off
@@ -140,6 +155,7 @@ class Rfb(
 
     companion object {
         const val NONE = 1
+        const val VNC_AUTH = 2
         const val ARD = 30
 
         const val RAW = 0

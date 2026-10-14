@@ -223,14 +223,14 @@ private fun MachineDialog(initial: Machine, isNew: Boolean, onSave: (Machine) ->
                     singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), modifier = Modifier.fillMaxWidth(),
                 )
                 Text("Desktop sign-in (optional)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                OutlinedTextField(user, { user = it }, label = { Text("Mac user name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(user, { user = it }, label = { Text("Mac user name") }, supportingText = { Text("Leave empty to use a Screen Sharing (VNC) password") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(
-                    password, { password = it }, label = { Text("Mac password") }, singleLine = true,
+                    password, { password = it }, label = { Text("Mac or VNC password") }, singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    "Lets the live view sign in to Screen Sharing as this user. Stored on this phone only. Without it the desktop shows snapshots.",
+                    "With a user name the live view signs in as that user, like Screen Sharing.app. A VNC password alone opens the login window. Stored on this phone only; without either the desktop shows snapshots.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

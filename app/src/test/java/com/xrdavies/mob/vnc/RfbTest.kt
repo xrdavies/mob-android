@@ -92,6 +92,31 @@ class RfbTest {
     }
 
     @Test
+    fun desMatchesTheStandardTestVector() {
+        fun hex(s: String) = s.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        assertArrayEquals(hex("85e813540f0ab405"), VncAuth.des(hex("133457799bbcdff1"), hex("0123456789abcdef")))
+        assertEquals(0x80.toByte(), VncAuth.reverseBits(1))
+        assertEquals(0x86.toByte(), VncAuth.reverseBits(0x61)) // 'a'
+    }
+
+    @Test
+    fun passwordOnlyUsesVncAuth() {
+        val bytes = ByteArrayOutputStream()
+        DataOutputStream(bytes).apply {
+            write("RFB 003.889\n".toByteArray())
+            writeByte(2); writeByte(30); writeByte(2)
+            write(ByteArray(16) { it.toByte() }) // challenge
+            writeInt(0)
+            writeShort(800); writeShort(600); write(ByteArray(16)); writeInt(0)
+        }
+        val sent = mutableListOf<ByteArray>()
+        Rfb(ByteArrayInputStream(bytes.toByteArray()), { sent += it }, "", "secret").handshake()
+        assertArrayEquals(byteArrayOf(2), sent[1])
+        assertArrayEquals(VncAuth.response("secret", ByteArray(16) { it.toByte() }), sent[2])
+        assertEquals(16, sent[2].size)
+    }
+
+    @Test
     fun ardOnlyServerAsksForCredentials() {
         val e = runCatching { Rfb(ByteArrayInputStream(server(intArrayOf(30))), {}, "", "").handshake() }.exceptionOrNull()
         assertTrue(e is RfbException)
