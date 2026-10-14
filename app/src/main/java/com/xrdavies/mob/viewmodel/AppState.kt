@@ -211,6 +211,7 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
 
     /** Fetches the pending question so the notification can show it. */
     private fun notifyQuestion(m: Machine, s: Session) {
+        Log.add("${m.name}: “${s.displayTitle}” is waiting for you")
         viewModelScope.launch {
             val q = runCatching { ApiClient(m.mobdUrl).api.getSession(s.id) }.getOrNull()
                 ?.questions?.lastOrNull { it.isPending }
@@ -285,12 +286,14 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
             val h = client.api.getHealth()
             if (client !== _apiClient) return
             _health.value = h
+            if (!_isConnected.value) Log.add("${activeMachine?.name}: connected, runners ${h.runners.orEmpty().joinToString { it.name }}")
             _isConnected.value = h.ok
             _healthError.value = null
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             if (client !== _apiClient) return
+            if (_healthError.value != e.readable()) Log.error("${activeMachine?.name}: health check failed: ${e.readable()}")
             _isConnected.value = false
             _health.value = null
             _healthError.value = e.readable()

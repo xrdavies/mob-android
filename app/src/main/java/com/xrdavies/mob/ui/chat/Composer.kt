@@ -103,6 +103,7 @@ fun Composer(appState: AppState) {
                     throw e
                 } catch (e: Exception) {
                     a.error = e.readable()
+                    com.xrdavies.mob.viewmodel.Log.error("upload failed: ${e.readable()}")
                 }
             }
         }

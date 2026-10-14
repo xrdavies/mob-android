@@ -62,6 +62,7 @@ class Notifier(private val context: Context) {
             .setPriority(if (channel == QUESTIONS) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
             .setContentIntent(openChat(m.id, s.id, id))
             .build()
+        com.xrdavies.mob.viewmodel.Log.add("notification: $title — $text")
         try {
             manager.notify(id, n)
         } catch (_: SecurityException) {

@@ -37,6 +37,7 @@ fun SettingsScreen(appState: AppState) {
     val activeId by appState.activeMachineId.collectAsState()
     var editing by remember { mutableStateOf<Machine?>(null) }
     var deleting by remember { mutableStateOf<Machine?>(null) }
+    var showLog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -83,12 +84,19 @@ fun SettingsScreen(appState: AppState) {
 
             NotificationsCard(appState)
 
+            SettingsCard("Log") {
+                Text("Connections, event streams, live view and errors, for troubleshooting.", style = MaterialTheme.typography.bodyMedium)
+                OutlinedButton(onClick = { showLog = true }) { Text("Open log") }
+            }
+
             SettingsCard("About") {
                 Text("mob-android v0.1.0")
                 Text("MIT License", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
+
+    if (showLog) LogDialog { showLog = false }
 
     editing?.let { m ->
         MachineDialog(

@@ -5,6 +5,7 @@ import com.xrdavies.mob.data.Machine
 import com.xrdavies.mob.data.OPEN
 import com.xrdavies.mob.data.Queue
 import com.xrdavies.mob.data.Session
+import com.xrdavies.mob.data.readable
 import com.xrdavies.mob.data.sse
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -42,6 +43,7 @@ class MachineWatcher(val machine: Machine, scope: CoroutineScope, private val ev
                     e.id?.let { lastId = it }
                     when (e.type) {
                         OPEN -> {
+                            Log.add("${machine.name}: events connected")
                             failures = 0
                             events.onLive(machine, true)
                         }
@@ -57,6 +59,7 @@ class MachineWatcher(val machine: Machine, scope: CoroutineScope, private val ev
                             events.onQueue(machine, it.queued.orEmpty().size)
                         }
                         "reset" -> {
+                            Log.add("${machine.name}: events reset, refetching")
                             seed(client)
                             events.onReset(machine)
                         }
@@ -64,8 +67,9 @@ class MachineWatcher(val machine: Machine, scope: CoroutineScope, private val ev
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
-            } catch (_: Exception) {
+            } catch (e: Exception) {
                 // Offline or mobd restarted; retry with backoff below.
+                Log.error("${machine.name}: events failed: ${e.readable()}")
             }
             failures++
             events.onLive(machine, false)

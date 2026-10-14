@@ -98,6 +98,7 @@ class ChatStore(private val scope: CoroutineScope, private val prefs: SharedPref
 
     private fun fail(e: Throwable) {
         _error.value = e.readable()
+        Log.error(e.readable())
     }
 
     /** Runs [block] against the current machine; drops the result if the machine changed meanwhile. */
@@ -219,13 +220,16 @@ class ChatStore(private val scope: CoroutineScope, private val prefs: SharedPref
                 try {
                     client.streamClient.sse(client.url("tasks/${task.id}/events?after=$after")).collect { e ->
                         failures = 0
+                        if (e.type == OPEN) Log.add("turn ${task.id.take(8)}: stream connected")
                         val ev = runCatching { ApiClient.gson.fromJson(e.data, TaskEvent::class.java) }.getOrNull() ?: return@collect
+                        Log.add("turn ${task.id.take(8)} ${e.type}: " + (ev.status ?: ev.activity?.title ?: ev.question?.text ?: ev.message?.take(80) ?: ""))
                         if (gen == generation) applyTaskEvent(task.id, e.type, ev)
                     }
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
-                } catch (_: Exception) {
+                } catch (e: Exception) {
                     failures++
+                    Log.error("turn ${task.id.take(8)}: stream failed: ${e.readable()}")
                 }
                 // The stream ended or broke: a snapshot catches up, then it reconnects.
                 if (!isActive || streamTask != task.id) break

@@ -53,6 +53,7 @@ class VncSession {
     fun connect(http: OkHttpClient, url: String, username: String, password: String) {
         disconnect()
         _state.value = VncState(VncStatus.Connecting, "Connecting…")
+        com.xrdavies.mob.viewmodel.Log.add("live view: connecting to $url")
         conn = Connection(http, url, username, password)
     }
 
@@ -168,6 +169,7 @@ class VncSession {
                     conn = null
                     bitmap = null
                     _state.value = VncState(VncStatus.Error, e.message ?: e.javaClass.simpleName)
+                    com.xrdavies.mob.viewmodel.Log.error("live view: ${e.message ?: e.javaClass.simpleName}")
                 }
             }
         }
@@ -177,6 +179,7 @@ class VncSession {
             post {
                 bitmap = bmp
                 val s = _state.value
+                if (s.status != VncStatus.Connected) com.xrdavies.mob.viewmodel.Log.add("live view: connected ${fb.width}×${fb.height}")
                 _state.value = VncState(VncStatus.Connected, "", fb.width, fb.height, s.control && s.status == VncStatus.Connected)
             }
         }
