@@ -234,6 +234,7 @@ private fun DesktopCanvas(appState: AppState, snapshotWidth: Int, modifier: Modi
     val live = state.status == VncStatus.Connected
     var snapshot by remember { mutableStateOf<Bitmap?>(null) }
     var snapshotError by remember { mutableStateOf<String?>(null) }
+    var snapshotAt by remember { mutableStateOf<java.time.LocalTime?>(null) }
 
     // The agent's last click pings once on the picture, like the desktop app.
     val detail by appState.chat.detail.collectAsState()
@@ -248,6 +249,7 @@ private fun DesktopCanvas(appState: AppState, snapshotWidth: Int, modifier: Modi
         while (isActive) {
             try {
                 snapshot = appState.apiClient.screen(snapshotWidth)
+                snapshotAt = java.time.LocalTime.now()
                 snapshotError = null
             } catch (e: CancellationException) {
                 throw e
@@ -288,8 +290,26 @@ private fun DesktopCanvas(appState: AppState, snapshotWidth: Int, modifier: Modi
             }
             Text(text, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(16.dp))
         }
+        if (!live) SnapshotLabel(snapshotAt.takeIf { snapshot != null }, snapshotError, Modifier.align(Alignment.BottomStart))
     }
 }
+
+/** "Snapshot · 17:33:05", or why snapshots fail (usually Screen Recording on the office Mac). */
+@Composable
+private fun SnapshotLabel(at: java.time.LocalTime?, error: String?, modifier: Modifier) {
+    val text = when {
+        error != null && at != null -> "Snapshot · ${at.format(SNAPSHOT_TIME)} · not updating"
+        error != null -> "Snapshot unavailable. Check Screen Recording on the office Mac."
+        at != null -> "Snapshot · ${at.format(SNAPSHOT_TIME)}"
+        else -> return
+    }
+    Text(
+        text, color = Color.White, style = MaterialTheme.typography.labelSmall,
+        modifier = modifier.padding(8.dp).background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 3.dp),
+    )
+}
+
+private val SNAPSHOT_TIME = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")
 
 @Composable
 private fun StatusChip(appState: AppState, modifier: Modifier = Modifier) {
