@@ -9,7 +9,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.DesktopMac
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Menu
@@ -117,7 +116,7 @@ fun ChatScreen(appState: AppState, onOpenDrawer: () -> Unit, onOpenSettings: () 
                 }
             }
 
-            Composer(appState, enabled = isConnected)
+            if (machine != null) Composer(appState)
         }
     }
 }
@@ -136,33 +135,6 @@ private fun EmptyState(title: String, hint: String, action: (@Composable () -> U
             Spacer(Modifier.height(16.dp))
             action()
         }
-    }
-}
-
-@Composable
-private fun Composer(appState: AppState, enabled: Boolean) {
-    val chat = appState.chat
-    val sending by chat.sending.collectAsState()
-    var input by remember { mutableStateOf("") }
-    val canSend = enabled && input.isNotBlank() && !sending
-    Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.Bottom) {
-        OutlinedTextField(
-            value = input,
-            onValueChange = { input = it },
-            placeholder = { Text("Ask mob to do something…") },
-            modifier = Modifier.weight(1f).heightIn(min = 56.dp, max = 140.dp),
-            enabled = enabled,
-            maxLines = 5,
-        )
-        Spacer(Modifier.width(8.dp))
-        FilledIconButton(
-            onClick = {
-                chat.send(input.trim())
-                input = ""
-            },
-            enabled = canSend,
-            modifier = Modifier.size(56.dp),
-        ) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
     }
 }
 

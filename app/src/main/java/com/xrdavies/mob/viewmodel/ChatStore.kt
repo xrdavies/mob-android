@@ -49,6 +49,10 @@ class ChatStore(private val scope: CoroutineScope, private val prefs: SharedPref
     private val _sending = MutableStateFlow(false)
     val sending: StateFlow<Boolean> = _sending
 
+    /** A stop was requested and the turn has not ended yet. */
+    private val _cancelling = MutableStateFlow(false)
+    val cancelling: StateFlow<Boolean> = _cancelling
+
     /** Last failure, shown once by the UI and then cleared. */
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
@@ -130,6 +134,7 @@ class ChatStore(private val scope: CoroutineScope, private val prefs: SharedPref
     fun open(id: String?) {
         _currentId.value = id
         _detail.value = null
+        _cancelling.value = false
         prefs.edit().putString(key(), id).apply()
         poll?.cancel()
         if (id == null) return
@@ -149,6 +154,7 @@ class ChatStore(private val scope: CoroutineScope, private val prefs: SharedPref
                     val d = client.api.getSession(id)
                     if (gen != generation || _currentId.value != id) break
                     _detail.value = ChatDetail(d.session, d.tasks.orEmpty(), d.activities.orEmpty(), d.questions.orEmpty())
+                    if (_detail.value?.busy != true) _cancelling.value = false
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -170,38 +176,59 @@ class ChatStore(private val scope: CoroutineScope, private val prefs: SharedPref
     /** Re-reads the open conversation now (after an action) without clearing it. */
     private fun reload() = _currentId.value?.let(::follow)
 
-    fun send(prompt: String, runner: String? = null, model: String? = null, effort: String? = null, attachments: List<String>? = null) {
+    /** Starts a turn; [done] gets true once mobd accepted it (the composer then clears). */
+    fun send(
+        prompt: String,
+        runner: String? = null,
+        model: String? = null,
+        effort: String? = null,
+        attachments: List<String>? = null,
+        done: (Boolean) -> Unit = {},
+    ) {
         _sending.value = true
         val sessionId = _currentId.value
+        var ok = false
         launch { client, gen ->
             try {
-                val task = client.api.createTask(CreateTaskRequest(prompt, sessionId, runner, model, effort, attachments))
+                val task = client.api.createTask(CreateTaskRequest(prompt, sessionId, runner, model, effort, attachments?.takeIf { it.isNotEmpty() }))
+                ok = true
                 if (gen != generation) return@launch
                 if (task.sessionId == _currentId.value) reload() else open(task.sessionId)
                 loadSessions()
             } finally {
                 _sending.value = false
+                done(ok)
             }
         }
     }
 
     fun cancel() {
-        val task = _detail.value?.current ?: return
+        val task = _detail.value?.current?.takeIf { Status.busy(it.status) } ?: return
+        _cancelling.value = true
         launch { client, _ ->
-            client.api.cancelTask(task.id).orThrow()
+            try {
+                client.api.cancelTask(task.id).orThrow()
+            } catch (e: Exception) {
+                _cancelling.value = false
+                throw e
+            }
             reload()
         }
     }
 
-    fun steer(prompt: String) {
+    /** Adds a message to the running turn (runners with steer). */
+    fun steer(prompt: String, done: (Boolean) -> Unit = {}) {
         val task = _detail.value?.current ?: return
         _sending.value = true
+        var ok = false
         launch { client, _ ->
             try {
                 client.api.steerTask(task.id, SteerRequest(prompt)).orThrow()
+                ok = true
                 reload()
             } finally {
                 _sending.value = false
+                done(ok)
             }
         }
     }

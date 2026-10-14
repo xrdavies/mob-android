@@ -13,6 +13,7 @@ Native Android app (Kotlin, Jetpack Compose) for [mob](https://github.com/xrdavi
 - **Several office Macs**: add, edit and switch machines (Settings → Machines, or the switcher at the top of the chat list); each has its own chats and desktop sign-in
 - **Chats**: chat list drawer with New chat, Pinned / Recent / Archived, and rename, pin, archive, delete per chat
 - **Chat with your office agent** (Codex or Claude Code)
+- **Composer**: attach up to 10 images (re-encoded to JPEG when the phone's format is not accepted), pick the agent for a new chat and its model / reasoning effort (remembered per machine and agent), **Stop** a running turn, add a message to a running Codex turn (steer), queue position while waiting for the desktop
 - **Task timeline** with live status updates
 - **Question cards** when the agent needs your input
 - **Live desktop view**: a thumbnail drawer under the Chat top bar (hidden by default, toggled with the monitor button; always view-only) and a full-screen view with a **View / Control** switch (tap = click, long-press = right-click, drag = drag, on-screen keyboard). Uses mobd's `/vnc` relay and signs in to Screen Sharing as the Mac user from Settings → Desktop sign-in; without a sign-in it shows `/screen` snapshots

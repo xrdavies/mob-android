@@ -130,6 +130,21 @@ class AppState(context: Context) : ViewModel() {
         }
     }
 
+    /**
+     * Composer choices, remembered per machine ("turn.<machine>.runner") and per machine and
+     * runner ("turn.<machine>/<runner>.model" / ".effort"), like the desktop app.
+     */
+    private val _turnPrefs = MutableStateFlow(
+        prefs.all.filterKeys { it.startsWith("turn.") }.mapValues { it.value.toString() }
+    )
+    val turnPrefs: StateFlow<Map<String, String>> = _turnPrefs
+
+    fun setTurnPref(key: String, value: String?) {
+        val k = "turn.$key"
+        _turnPrefs.value = if (value.isNullOrEmpty()) _turnPrefs.value - k else _turnPrefs.value + (k to value)
+        prefs.edit().apply { if (value.isNullOrEmpty()) remove(k) else putString(k, value) }.apply()
+    }
+
     fun newMachineId(): String = UUID.randomUUID().toString()
 
     /** A view that shows the desktop is on screen; the live view stays open while any is. */
