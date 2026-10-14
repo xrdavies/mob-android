@@ -1,5 +1,7 @@
 package com.xrdavies.mob.data
 
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -43,7 +45,7 @@ class ApiClient(baseUrl: String) {
         .build()
     
     private val retrofit = Retrofit.Builder()
-        .baseUrl(baseUrl.trimEnd('/') + "/")
+        .baseUrl(normalize(baseUrl))
         .client(okHttpClient)
         .addConverterFactory(GsonConverterFactory.create())
         .build()
@@ -52,5 +54,18 @@ class ApiClient(baseUrl: String) {
     
     fun updateBaseUrl(newUrl: String): ApiClient {
         return ApiClient(newUrl)
+    }
+
+    companion object {
+        // Used until the user enters a mobd URL; AppState makes no requests then.
+        private const val PLACEHOLDER = "http://localhost/"
+
+        /** Turns "192.168.1.5:8080" or "http://host:8080/" into a Retrofit base URL. */
+        fun normalize(url: String): HttpUrl {
+            val trimmed = url.trim().trimEnd('/')
+            if (trimmed.isEmpty()) return PLACEHOLDER.toHttpUrlOrNull()!!
+            val withScheme = if ("://" in trimmed) trimmed else "http://$trimmed"
+            return "$withScheme/".toHttpUrlOrNull() ?: PLACEHOLDER.toHttpUrlOrNull()!!
+        }
     }
 }
