@@ -552,6 +552,8 @@ private fun KeyboardSink(vnc: VncSession, focus: FocusRequester) {
         singleLine = true,
         keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Send),
         keyboardActions = KeyboardActions(onSend = { vnc.tapKey(VncSession.XK_RETURN) }),
-        modifier = Modifier.size(1.dp).alpha(0f).focusRequester(focus),
+        // Surface forces full-size children; without wrapContentSize this invisible field covers
+        // the screen and swallows every touch meant for the desktop.
+        modifier = Modifier.wrapContentSize(Alignment.TopStart).size(1.dp).alpha(0f).focusRequester(focus),
     )
 }
