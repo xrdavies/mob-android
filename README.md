@@ -39,6 +39,11 @@ export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 adb shell am start -n com.xrdavies.mob/.MainActivity
 ```
 
+## Releases
+
+Signed APKs are published to `https://mob-releases.0xd.app/android/` and offered on the mob website.
+Run `make release VERSION=vX.Y.Z`; see [docs/releases.md](docs/releases.md) for the keystore and CI setup.
+
 ## Architecture
 
 - **Jetpack Compose** for all UI

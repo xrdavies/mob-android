@@ -11,16 +11,31 @@ android {
         applicationId = "com.xrdavies.mob"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        // Release CI injects the tag version; local builds keep the defaults.
+        versionCode = System.getenv("MOB_VERSION_CODE")?.toInt() ?: 1
+        versionName = System.getenv("MOB_VERSION_NAME") ?: "0.1.0"
 
         vectorDrawables {
             useSupportLibrary = true
         }
     }
 
+    // Release signing comes from CI secrets (see docs/releases.md); unset locally.
+    val keystore = System.getenv("ANDROID_KEYSTORE_PATH")
+    signingConfigs {
+        if (keystore != null) {
+            create("release") {
+                storeFile = file(keystore)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (keystore != null) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
