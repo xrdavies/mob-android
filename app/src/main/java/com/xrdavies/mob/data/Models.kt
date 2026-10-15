@@ -186,12 +186,26 @@ data class AnswerQuestionRequest(val answer: String? = null, val approved: Boole
 
 data class SteerRequest(val prompt: String)
 
-/** An office Mac running mobd. Stored on the phone only. */
+/**
+ * An office Mac running mobd. Stored on the phone only; the device token and desktop password
+ * live in [SecretStore]. Gson skips Kotlin defaults, so fields added later must be nullable.
+ */
 data class Machine(
     val id: String,
     val name: String,
     val mobdUrl: String,
     /** macOS user for Screen Sharing sign-in (ARD), so the live view lands in that user's session. */
     val vncUsername: String = "",
-    val vncPassword: String = "",
+    /** Only read from old saved lists, then moved to [SecretStore]; never saved again. */
+    val vncPassword: String? = null,
+    /** From pairing; identifies the office, it does not prove it. */
+    val serverId: String? = null,
+    val clientId: String? = null,
+    /** mobd refused the token (or there is none yet): no requests until paired again. */
+    val needsPairing: Boolean? = null,
 )
+
+/** The saved machine list, or null when it cannot be read. */
+fun decodeMachines(json: String): List<Machine>? = runCatching {
+    ApiClient.gson.fromJson<List<Machine>>(json, object : com.google.gson.reflect.TypeToken<List<Machine>>() {}.type)
+}.getOrNull()

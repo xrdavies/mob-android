@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Secrets are encrypted with a Keystore key that never leaves this phone; copying them is useless. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="mob.secrets.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="mob.secrets.xml" />
+    </device-transfer>
+</data-extraction-rules>

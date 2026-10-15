@@ -5,6 +5,7 @@ import com.xrdavies.mob.data.Machine
 import com.xrdavies.mob.data.OPEN
 import com.xrdavies.mob.data.Queue
 import com.xrdavies.mob.data.Session
+import com.xrdavies.mob.data.isUnauthorized
 import com.xrdavies.mob.data.readable
 import com.xrdavies.mob.data.sse
 import kotlinx.coroutines.CoroutineScope
@@ -24,17 +25,18 @@ interface MachineEvents {
     fun onSeed(m: Machine, sessions: List<Session>)
     /** Turns waiting for the desktop on this machine (all chats). */
     fun onQueue(m: Machine, queued: Int)
+    /** mobd refused [token]; the watcher has stopped. */
+    fun onUnauthorized(m: Machine, token: String?)
 }
 
 /**
  * Follows one machine's GET /events (session summaries) and remembers the last summary of
  * every chat, so callers see transitions: started waiting, finished, failed.
  */
-class MachineWatcher(val machine: Machine, scope: CoroutineScope, private val events: MachineEvents) {
+class MachineWatcher(val machine: Machine, val client: ApiClient, scope: CoroutineScope, private val events: MachineEvents) {
     private val known = mutableMapOf<String, Session>()
 
     val job: Job = scope.launch {
-        val client = ApiClient(machine.mobdUrl)
         var lastId: String? = null
         var failures = 0
         while (isActive) {
@@ -70,8 +72,13 @@ class MachineWatcher(val machine: Machine, scope: CoroutineScope, private val ev
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                // Offline or mobd restarted; retry with backoff below.
                 Log.error("${machine.name}: events failed: ${e.readable()}")
+                if (e.isUnauthorized()) {
+                    events.onLive(machine, false)
+                    events.onUnauthorized(machine, client.token)
+                    return@launch
+                }
+                // Offline or mobd restarted; retry with backoff below.
             }
             failures++
             events.onLive(machine, false)

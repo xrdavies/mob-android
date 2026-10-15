@@ -16,6 +16,8 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import com.xrdavies.mob.data.NEEDS_PAIRING
+import com.xrdavies.mob.data.isUnauthorized
 import com.xrdavies.mob.data.latestClick
 import com.xrdavies.mob.data.screenGeometry
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -245,17 +247,29 @@ private fun DesktopCanvas(appState: AppState, snapshotWidth: Int, modifier: Modi
     val ping = remember(click?.id) { Animatable(0f) }
     LaunchedEffect(click?.id) { if (click != null) ping.animateTo(1f, tween(1600)) }
 
-    LaunchedEffect(live) {
+    val machines by appState.machines.collectAsState()
+    val activeId by appState.activeMachineId.collectAsState()
+    val needsPairing = machines.firstOrNull { it.id == activeId }?.needsPairing == true
+    LaunchedEffect(live, needsPairing, activeId) {
         if (live) return@LaunchedEffect
+        if (needsPairing) {
+            snapshotError = NEEDS_PAIRING
+            return@LaunchedEffect
+        }
+        val client = appState.apiClient
         while (isActive) {
             try {
-                snapshot = appState.apiClient.screen(snapshotWidth)
+                snapshot = client.screen(snapshotWidth)
                 snapshotAt = java.time.LocalTime.now()
                 snapshotError = null
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 snapshotError = e.message
+                if (e.isUnauthorized()) {
+                    activeId?.let { appState.markNeedsPairing(it, client.token) }
+                    break
+                }
             }
             delay(2000)
         }

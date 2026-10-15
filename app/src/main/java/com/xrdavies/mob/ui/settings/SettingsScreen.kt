@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -36,6 +37,8 @@ fun SettingsScreen(appState: AppState) {
     val machines by appState.machines.collectAsState()
     val activeId by appState.activeMachineId.collectAsState()
     var editing by remember { mutableStateOf<Machine?>(null) }
+    // "" adds a machine, an ID pairs that one again; saveable because the QR scanner may recreate the activity.
+    var pairing by rememberSaveable { mutableStateOf<String?>(null) }
     var deleting by remember { mutableStateOf<Machine?>(null) }
     var showLog by remember { mutableStateOf(false) }
 
@@ -51,11 +54,11 @@ fun SettingsScreen(appState: AppState) {
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            StatusCard(appState)
+            StatusCard(appState, onPair = { pairing = it })
 
             SettingsCard("Machines") {
                 if (machines.isEmpty()) {
-                    Text("No office Mac yet. Add the mobd URL of the Mac that runs the agent.", style = MaterialTheme.typography.bodyMedium)
+                    Text("No office Mac yet. Run mobd link on the Mac that runs the agent, then add it here.", style = MaterialTheme.typography.bodyMedium)
                 }
                 machines.forEach { m ->
                     Row(
@@ -70,12 +73,16 @@ fun SettingsScreen(appState: AppState) {
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis,
                             )
+                            if (m.needsPairing == true) {
+                                Text("Needs pairing", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+                            }
                         }
+                        if (m.needsPairing == true) TextButton(onClick = { pairing = m.id }) { Text("Pair again") }
                         IconButton(onClick = { editing = m }) { Icon(Icons.Filled.Edit, "Edit ${m.name}") }
                         IconButton(onClick = { deleting = m }) { Icon(Icons.Filled.Delete, "Delete ${m.name}") }
                     }
                 }
-                OutlinedButton(onClick = { editing = Machine(appState.newMachineId(), "", "") }) {
+                OutlinedButton(onClick = { pairing = "" }) {
                     Icon(Icons.Filled.Add, null)
                     Spacer(Modifier.width(8.dp))
                     Text("Add machine")
@@ -101,13 +108,20 @@ fun SettingsScreen(appState: AppState) {
     editing?.let { m ->
         MachineDialog(
             initial = m,
-            isNew = machines.none { it.id == m.id },
-            onSave = {
-                appState.saveMachine(it)
+            initialPassword = remember(m.id) { appState.vncPassword(m) },
+            onSave = { updated, password ->
+                appState.saveMachine(updated, password)
                 editing = null
+            },
+            onPairAgain = {
+                editing = null
+                pairing = m.id
             },
             onDismiss = { editing = null },
         )
+    }
+    pairing?.let { id ->
+        PairDialog(appState, machines.firstOrNull { it.id == id }, onDismiss = { pairing = null })
     }
     deleting?.let { m ->
         AlertDialog(
@@ -136,12 +150,14 @@ private fun SettingsCard(title: String, content: @Composable ColumnScope.() -> U
 }
 
 @Composable
-private fun StatusCard(appState: AppState) {
+private fun StatusCard(appState: AppState, onPair: (String) -> Unit) {
     val connected by appState.isConnected.collectAsState()
     val health by appState.health.collectAsState()
     val error by appState.healthError.collectAsState()
     val activeId by appState.activeMachineId.collectAsState()
-    if (activeId == null) return
+    val machines by appState.machines.collectAsState()
+    val machine = machines.firstOrNull { it.id == activeId } ?: return
+    if (machine.needsPairing == true) return NeedsPairingBanner(machine, onPair = { onPair(machine.id) })
     SettingsCard("Status") {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.size(12.dp).background(if (connected) Color(0xFF22C55E) else Color(0xFFEF4444), CircleShape))
@@ -215,21 +231,30 @@ private fun NotificationsCard(appState: AppState) {
 }
 
 @Composable
-private fun MachineDialog(initial: Machine, isNew: Boolean, onSave: (Machine) -> Unit, onDismiss: () -> Unit) {
+private fun MachineDialog(
+    initial: Machine,
+    initialPassword: String,
+    onSave: (Machine, password: String) -> Unit,
+    onPairAgain: () -> Unit,
+    onDismiss: () -> Unit,
+) {
     var name by remember { mutableStateOf(initial.name) }
-    var url by remember { mutableStateOf(initial.mobdUrl) }
     var user by remember { mutableStateOf(initial.vncUsername) }
-    var password by remember { mutableStateOf(initial.vncPassword) }
+    var password by remember { mutableStateOf(initialPassword) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (isNew) "Add machine" else "Edit machine") },
+        title = { Text("Edit machine") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(name, { name = it }, label = { Text("Name") }, placeholder = { Text("Office Mac") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(
-                    url, { url = it }, label = { Text("mobd URL") }, placeholder = { Text("http://192.168.1.100:8080") },
-                    singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), modifier = Modifier.fillMaxWidth(),
-                )
+                // The address comes from pairing; a new one needs a new link.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("mobd URL", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(initial.mobdUrl, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    TextButton(onClick = onPairAgain) { Text("Pair again") }
+                }
                 Text("Desktop sign-in (optional)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 OutlinedTextField(user, { user = it }, label = { Text("Mac user name") }, supportingText = { Text("Leave empty to use a Screen Sharing (VNC) password") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(
@@ -244,8 +269,8 @@ private fun MachineDialog(initial: Machine, isNew: Boolean, onSave: (Machine) ->
             }
         },
         confirmButton = {
-            TextButton(enabled = url.isNotBlank(), onClick = {
-                onSave(initial.copy(name = name.trim().ifBlank { "Office Mac" }, mobdUrl = url.trim(), vncUsername = user.trim(), vncPassword = password))
+            TextButton(onClick = {
+                onSave(initial.copy(name = name.trim().ifBlank { "Office Mac" }, vncUsername = user.trim()), password)
             }) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },

@@ -4,29 +4,40 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import com.xrdavies.mob.data.AnswerQuestionRequest
 import com.xrdavies.mob.data.ApiClient
 import com.xrdavies.mob.data.Health
 import com.xrdavies.mob.data.Machine
+import com.xrdavies.mob.data.NEEDS_PAIRING
+import com.xrdavies.mob.data.PairLink
+import com.xrdavies.mob.data.SecretStore
 import com.xrdavies.mob.data.Session
 import com.xrdavies.mob.data.Status
+import com.xrdavies.mob.data.decodeMachines
+import com.xrdavies.mob.data.isUnauthorized
+import com.xrdavies.mob.data.pair as redeemInvite
 import com.xrdavies.mob.data.readable
 import com.xrdavies.mob.notify.Notifier
 import com.xrdavies.mob.notify.WatchService
 import com.xrdavies.mob.vnc.VncSession
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.OkHttpClient
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 class AppState(context: Context) : ViewModel(), MachineEvents {
     private val appContext = context.applicationContext
     private val prefs = context.getSharedPreferences("mob", Context.MODE_PRIVATE)
     private val gson = Gson()
+    private val secrets = SecretStore(appContext)
 
     private val _machines = MutableStateFlow(loadMachines())
     val machines: StateFlow<List<Machine>> = _machines
@@ -56,11 +67,11 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     val vnc = VncSession()
     private var desktopUsers = 0
 
-    private var _apiClient: ApiClient = ApiClient(activeMachine?.mobdUrl.orEmpty())
+    private var _apiClient: ApiClient = clientFor(activeMachine)
     val apiClient: ApiClient
         get() = _apiClient
 
-    val chat = ChatStore(viewModelScope, prefs)
+    val chat = ChatStore(viewModelScope, prefs, ::markNeedsPairing)
     private var healthJob: Job? = null
 
     val notifier = Notifier(appContext)
@@ -100,43 +111,70 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     }
 
     private fun loadMachines(): List<Machine> {
-        prefs.getString("machines", null)?.let { json ->
-            runCatching { gson.fromJson<List<Machine>>(json, object : TypeToken<List<Machine>>() {}.type) }
-                .getOrNull()?.let { return it }
-        }
+        val stored = prefs.getString("machines", null)?.let(::decodeMachines)
         // Before machines existed the app stored one URL and one sign-in.
-        val url = prefs.getString("mobdUrl", "").orEmpty()
-        if (url.isBlank()) return emptyList()
-        val m = Machine(
-            UUID.randomUUID().toString(), "Office Mac", url,
-            prefs.getString("vncUsername", "").orEmpty(), prefs.getString("vncPassword", "").orEmpty(),
+        val legacyUrl = prefs.getString("mobdUrl", "").orEmpty()
+        val list = stored ?: if (legacyUrl.isBlank()) emptyList() else listOf(
+            Machine(
+                UUID.randomUUID().toString(), "Office Mac", legacyUrl,
+                prefs.getString("vncUsername", "").orEmpty(), prefs.getString("vncPassword", "").orEmpty(),
+            )
         )
-        saveMachines(listOf(m))
-        return listOf(m)
+        // Passwords used to be saved in plain text; move them to the secret store. Machines
+        // from before pairing have no token and wait for the user to pair them.
+        var changed = stored == null && list.isNotEmpty()
+        val migrated = list.map { m ->
+            var out = m
+            val password = m.vncPassword
+            if (password != null && (password.isEmpty() || secrets.set(SecretStore.vncPassword(m.id), password))) {
+                out = out.copy(vncPassword = null)
+                changed = true
+            }
+            if (out.needsPairing != true && secrets.get(SecretStore.token(m.id)) == null) {
+                out = out.copy(needsPairing = true)
+                changed = true
+            }
+            out
+        }
+        if (changed) saveMachines(migrated)
+        if (prefs.contains("vncPassword") && migrated.none { it.vncPassword != null }) prefs.edit().remove("vncPassword").apply()
+        return migrated
     }
 
     private fun saveMachines(list: List<Machine>) {
+        // A password that could not be moved to the secret store stays until the next try.
         prefs.edit().putString("machines", gson.toJson(list)).apply()
     }
+
+    private fun token(m: Machine): String? = secrets.get(SecretStore.token(m.id))
+
+    /** Paired and not refused: requests to it make sense. */
+    private fun usable(m: Machine?): Boolean = m != null && m.needsPairing != true && token(m) != null
+
+    /** A client for [m] that signs requests with its token; never another machine's. */
+    private fun clientFor(m: Machine?): ApiClient = ApiClient(m?.mobdUrl.orEmpty(), m?.let(::token))
+
+    fun vncPassword(m: Machine): String = secrets.get(SecretStore.vncPassword(m.id)) ?: m.vncPassword.orEmpty()
 
     /** Points the API client, chats, health and live view at the active machine. */
     private fun activate() {
         val m = activeMachine
         prefs.edit().putString("activeMachine", m?.id).apply()
-        _apiClient = ApiClient(m?.mobdUrl.orEmpty())
-        chat.live = m?.id in liveMachines
+        _apiClient = clientFor(m)
+        val ok = usable(m)
+        chat.live = ok && m?.id in liveMachines
         _health.value = null
         _isConnected.value = false
-        _healthError.value = null
-        chat.attach(_apiClient, m?.id.orEmpty(), enabled = m != null)
+        _healthError.value = if (m != null && !ok) NEEDS_PAIRING else null
+        chat.attach(_apiClient, m?.id.orEmpty(), enabled = ok)
         healthJob?.cancel()
-        healthJob = viewModelScope.launch {
+        healthJob = if (!ok) null else viewModelScope.launch {
             while (isActive) {
                 checkHealthNow()
                 delay(30_000)
             }
         }
-        if (desktopUsers > 0) connectDesktop() else vnc.disconnect()
+        if (desktopUsers > 0 && ok) connectDesktop() else vnc.disconnect()
     }
 
     fun selectMachine(id: String) {
@@ -145,8 +183,12 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
         activate()
     }
 
-    /** Adds or updates a machine; returns its ID. */
-    fun saveMachine(m: Machine): String {
+    /** Adds or updates a machine; returns its ID. A non-null [vncPassword] replaces the stored one. */
+    fun saveMachine(m: Machine, vncPassword: String? = null): String {
+        if (vncPassword != null) {
+            if (vncPassword.isEmpty()) secrets.delete(SecretStore.vncPassword(m.id))
+            else secrets.set(SecretStore.vncPassword(m.id), vncPassword)
+        }
         val list = _machines.value
         val updated = if (list.any { it.id == m.id }) list.map { if (it.id == m.id) m else it } else list + m
         _machines.value = updated
@@ -164,6 +206,8 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
         _machines.value = updated
         setWaiting(id) { emptySet() }
         saveMachines(updated)
+        secrets.delete(SecretStore.token(id))
+        secrets.delete(SecretStore.vncPassword(id))
         prefs.edit().remove("session.$id").apply()
         if (id == _activeMachineId.value) {
             _activeMachineId.value = updated.firstOrNull()?.id
@@ -172,18 +216,59 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
         syncWatchers()
     }
 
-    /** Starts a watcher for each machine, and restarts one whose URL changed. */
+    /**
+     * Pairs this device with the office in [link]: redeems the invite, stores the token and
+     * activates the machine. Updates [existing] (Pair again) or the machine already paired with
+     * that office; otherwise adds one. Runs in the view model so leaving the dialog cannot lose
+     * a redeemed invite. Fails with a readable message.
+     */
+    fun pair(link: PairLink, deviceName: String, existing: Machine?): Deferred<Unit> = viewModelScope.async {
+        val r = redeemInvite(link, deviceName, pairingHttp)
+        val base = existing?.let { e -> _machines.value.firstOrNull { it.id == e.id } }
+            ?: _machines.value.firstOrNull { it.serverId == r.serverId }
+        val m = (base ?: Machine(newMachineId(), link.origin.toHttpUrl().host, link.origin))
+            .copy(mobdUrl = link.origin, serverId = r.serverId, clientId = r.clientId, needsPairing = null)
+        // The new token and its origin are saved together, so the old token never reaches a new address.
+        check(secrets.set(SecretStore.token(m.id), r.token)) { "Could not store the device token on this phone" }
+        Log.add("${m.name}: paired with ${link.origin}")
+        saveMachine(m)
+        selectMachine(m.id)
+    }
+
+    /** No Authorization here: POST /pair proves itself with the invite. */
+    private val pairingHttp = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .build()
+
+    /**
+     * mobd refused [token] for this machine: keep it in the list but stop every request until the
+     * user pairs again. Ignored when the token has changed since (a late answer to an old pairing).
+     */
+    fun markNeedsPairing(id: String, token: String?) {
+        viewModelScope.launch {
+            val m = _machines.value.firstOrNull { it.id == id } ?: return@launch
+            if (m.needsPairing == true || token(m) != token) return@launch
+            Log.error("${m.name}: $NEEDS_PAIRING")
+            saveMachine(m.copy(needsPairing = true))
+        }
+    }
+
+    /** Starts a watcher for each usable machine, and restarts one whose URL or token changed. */
     private fun syncWatchers() {
         val machines = _machines.value.associateBy { it.id }
         watchers.entries.removeAll { (id, w) ->
-            (machines[id]?.mobdUrl != w.machine.mobdUrl).also { gone ->
+            val m = machines[id]
+            (!usable(m) || m?.mobdUrl != w.machine.mobdUrl || token(m!!) != w.client.token).also { gone ->
                 if (gone) {
                     w.job.cancel()
                     liveMachines -= id
                 }
             }
         }
-        for (m in machines.values) if (m.id !in watchers) watchers[m.id] = MachineWatcher(m, viewModelScope, this)
+        for (m in machines.values) {
+            if (m.id !in watchers && usable(m)) watchers[m.id] = MachineWatcher(m, clientFor(m), viewModelScope, this)
+        }
         updateBackgroundService()
     }
 
@@ -195,7 +280,7 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
 
     /** Runs the background service while it is wanted and there is something to watch. */
     fun updateBackgroundService() {
-        if (_backgroundWatch.value && _machines.value.isNotEmpty()) {
+        if (_backgroundWatch.value && _machines.value.any(::usable)) {
             if (foreground) WatchService.start(appContext)
         } else WatchService.stop(appContext)
     }
@@ -230,8 +315,10 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     private fun notifyQuestion(m: Machine, s: Session) {
         Log.add("${m.name}: “${s.displayTitle}” is waiting for you")
         viewModelScope.launch {
-            val q = runCatching { ApiClient(m.mobdUrl).api.getSession(s.id) }.getOrNull()
-                ?.questions?.lastOrNull { it.isPending }
+            val client = clientFor(m)
+            val q = runCatching { client.api.getSession(s.id) }
+                .onFailure { if (it.isUnauthorized()) markNeedsPairing(m.id, client.token) }
+                .getOrNull()?.questions?.lastOrNull { it.isPending }
             notifier.question(m, s, q, _waitingCount.value)
         }
     }
@@ -239,8 +326,13 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     /** Sends an answer picked or typed in a notification; tells the user when it fails. */
     suspend fun answerFromNotification(machine: String, session: String, task: String, question: String, answer: String?, approved: Boolean?) {
         val m = _machines.value.firstOrNull { it.id == machine } ?: return
+        if (!usable(m)) {
+            notifier.answerFailed(m, session, NEEDS_PAIRING)
+            return
+        }
+        val client = clientFor(m)
         runCatching {
-            val r = ApiClient(m.mobdUrl).api.answerQuestion(task, question, AnswerQuestionRequest(answer?.ifEmpty { null }, approved))
+            val r = client.api.answerQuestion(task, question, AnswerQuestionRequest(answer?.ifEmpty { null }, approved))
             check(r.isSuccessful) { r.errorBody()?.string()?.ifBlank { null } ?: "HTTP ${r.code()}" }
         }.onSuccess {
             Log.add("answered from notification: ${answer ?: if (approved == true) "approved" else "denied"}")
@@ -249,6 +341,7 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
         }.onFailure {
             Log.add("notification answer failed: ${it.readable()}")
             notifier.answerFailed(m, session, it.readable())
+            if (it.isUnauthorized()) markNeedsPairing(m.id, client.token)
         }
     }
 
@@ -260,6 +353,8 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     override fun onReset(m: Machine) {
         if (m.id == _activeMachineId.value) chat.refreshAll()
     }
+
+    override fun onUnauthorized(m: Machine, token: String?) = markNeedsPairing(m.id, token)
 
     override fun onQueue(m: Machine, queued: Int) {
         _queued.value = _queued.value + (m.id to queued)
@@ -301,8 +396,9 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     }
 
     fun connectDesktop() {
-        val m = activeMachine ?: return
-        vnc.connect(_apiClient.okHttpClient, _apiClient.vncUrl, m.vncUsername, m.vncPassword)
+        val m = activeMachine?.takeIf(::usable) ?: return
+        val client = _apiClient
+        vnc.connect(client.okHttpClient, client.vncUrl, m.vncUsername, vncPassword(m)) { markNeedsPairing(m.id, client.token) }
     }
 
     fun checkHealth() {
@@ -311,9 +407,11 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
 
     private suspend fun checkHealthNow() {
         val client = _apiClient
-        if (activeMachine == null) {
+        val m = activeMachine
+        if (!usable(m)) {
             _isConnected.value = false
             _health.value = null
+            if (m != null) _healthError.value = NEEDS_PAIRING
             return
         }
         try {
@@ -331,6 +429,7 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
             _isConnected.value = false
             _health.value = null
             _healthError.value = e.readable()
+            if (e.isUnauthorized()) markNeedsPairing(m!!.id, client.token)
         }
     }
 

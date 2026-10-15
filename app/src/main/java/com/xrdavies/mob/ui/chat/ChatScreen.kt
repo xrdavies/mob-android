@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -27,6 +28,8 @@ import com.xrdavies.mob.data.TimelineItem
 import com.xrdavies.mob.data.buildTimeline
 import com.xrdavies.mob.ui.desktop.DesktopDrawer
 import com.xrdavies.mob.ui.desktop.LiveViewDialog
+import com.xrdavies.mob.ui.settings.NeedsPairingBanner
+import com.xrdavies.mob.ui.settings.PairDialog
 import com.xrdavies.mob.viewmodel.AppState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -45,6 +48,8 @@ fun ChatScreen(appState: AppState, onOpenDrawer: (() -> Unit)?, onOpenSettings: 
     val machines by appState.machines.collectAsState()
     val activeId by appState.activeMachineId.collectAsState()
     val machine = machines.firstOrNull { it.id == activeId }
+    var pairing by rememberSaveable { mutableStateOf(false) }
+    if (pairing && machine != null) PairDialog(appState, machine, onDismiss = { pairing = false })
 
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(error) {
@@ -137,6 +142,9 @@ fun ChatScreen(appState: AppState, onOpenDrawer: (() -> Unit)?, onOpenSettings: 
             val paneWidth = min(maxWidth * 0.4f, 520.dp)
             Row(Modifier.fillMaxSize()) {
                 Column(Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (machine?.needsPairing == true) {
+                        NeedsPairingBanner(machine, onPair = { pairing = true }, Modifier.widthIn(max = 840.dp).padding(8.dp))
+                    }
                     AnimatedVisibility(visible = !side && showDesktop && machine != null) { DesktopDrawer(appState) }
 
                     Box(Modifier.weight(1f).widthIn(max = 840.dp).fillMaxWidth()) {

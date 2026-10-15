@@ -3,6 +3,9 @@ package com.xrdavies.mob.vnc
 import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
+import com.xrdavies.mob.data.HttpStatusException
+import com.xrdavies.mob.data.NEEDS_PAIRING
+import com.xrdavies.mob.data.isUnauthorized
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import okhttp3.OkHttpClient
@@ -50,11 +53,12 @@ class VncSession {
     private val main = Handler(Looper.getMainLooper())
     private var conn: Connection? = null
 
-    fun connect(http: OkHttpClient, url: String, username: String, password: String) {
+    /** [onUnauthorized] runs on the main thread when mobd refuses the device token. */
+    fun connect(http: OkHttpClient, url: String, username: String, password: String, onUnauthorized: () -> Unit = {}) {
         disconnect()
         _state.value = VncState(VncStatus.Connecting, "Connecting…")
         com.xrdavies.mob.viewmodel.Log.add("live view: connecting to $url")
-        conn = Connection(http, url, username, password)
+        conn = Connection(http, url, username, password, onUnauthorized)
     }
 
     fun disconnect() {
@@ -139,6 +143,7 @@ class VncSession {
         url: String,
         private val username: String,
         private val password: String,
+        private val onUnauthorized: () -> Unit,
     ) : WebSocketListener() {
         private val input = WsInput()
         @Volatile var rfb: Rfb? = null
@@ -170,6 +175,7 @@ class VncSession {
                     bitmap = null
                     _state.value = VncState(VncStatus.Error, e.message ?: e.javaClass.simpleName)
                     com.xrdavies.mob.viewmodel.Log.error("live view: ${e.message ?: e.javaClass.simpleName}")
+                    if (e.isUnauthorized()) onUnauthorized()
                 }
             }
         }
@@ -200,7 +206,13 @@ class VncSession {
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) = input.push(bytes.toByteArray())
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-            input.fail(IOException(response?.let { httpError(it) } ?: t.message ?: "Connection failed"))
+            input.fail(
+                when {
+                    t is HttpStatusException -> t
+                    response != null -> HttpStatusException(response.code, httpError(response))
+                    else -> IOException(t.message ?: "Connection failed")
+                }
+            )
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -210,6 +222,7 @@ class VncSession {
 
     /** mobd fails /vnc with JSON {"error": …} (for example when Screen Sharing is off). */
     private fun httpError(r: Response): String {
+        if (r.code == 401) return NEEDS_PAIRING
         val body = runCatching { r.body?.string().orEmpty() }.getOrDefault("")
         val msg = runCatching { JSONObject(body).getString("error") }.getOrNull()
         return msg ?: "HTTP ${r.code}"

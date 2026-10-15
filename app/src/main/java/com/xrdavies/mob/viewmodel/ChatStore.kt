@@ -24,8 +24,13 @@ data class ChatDetail(
 /**
  * Chats on the active machine: the list, the open conversation, and every action on them.
  * One instance lives in [AppState]; [attach] points it at another machine.
+ * [onUnauthorized] gets the machine and token mobd refused; AppState then detaches the store.
  */
-class ChatStore(private val scope: CoroutineScope, private val prefs: SharedPreferences) {
+class ChatStore(
+    private val scope: CoroutineScope,
+    private val prefs: SharedPreferences,
+    private val onUnauthorized: (machine: String, token: String?) -> Unit,
+) {
     private var api: ApiClient? = null
     private var machineId = ""
     private var generation = 0
@@ -99,7 +104,10 @@ class ChatStore(private val scope: CoroutineScope, private val prefs: SharedPref
     private fun fail(e: Throwable) {
         _error.value = e.readable()
         Log.error(e.readable())
+        if (e.isUnauthorized()) unauthorized()
     }
+
+    private fun unauthorized() = onUnauthorized(machineId, api?.token)
 
     /** Runs [block] against the current machine; drops the result if the machine changed meanwhile. */
     private fun launch(block: suspend (ApiClient, Int) -> Unit) {
@@ -128,8 +136,9 @@ class ChatStore(private val scope: CoroutineScope, private val prefs: SharedPref
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             // The health check reports connection problems; the list just keeps its last state.
+            if (e.isUnauthorized() && gen == generation) unauthorized()
         }
     }
 
@@ -175,6 +184,10 @@ class ChatStore(private val scope: CoroutineScope, private val prefs: SharedPref
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
+                    if (e.isUnauthorized()) {
+                        if (gen == generation) fail(e)
+                        break
+                    }
                     if (first && e is retrofit2.HttpException && e.code() == 404) {
                         // The saved chat was deleted elsewhere.
                         if (gen == generation) open(null)
@@ -230,6 +243,10 @@ class ChatStore(private val scope: CoroutineScope, private val prefs: SharedPref
                 } catch (e: Exception) {
                     failures++
                     Log.error("turn ${task.id.take(8)}: stream failed: ${e.readable()}")
+                    if (e.isUnauthorized()) {
+                        if (gen == generation) unauthorized()
+                        break
+                    }
                 }
                 // The stream ended or broke: a snapshot catches up, then it reconnects.
                 if (!isActive || streamTask != task.id) break

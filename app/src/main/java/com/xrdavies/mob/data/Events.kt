@@ -39,7 +39,7 @@ fun OkHttpClient.sse(url: String, lastEventId: String? = null): Flow<SseEvent> =
         }
 
         override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
-            close(t ?: IOException("HTTP ${response?.code}"))
+            close(t ?: response?.let { HttpStatusException(it.code, "HTTP ${it.code}") } ?: IOException("Connection failed"))
         }
     })
     awaitClose { source.cancel() }

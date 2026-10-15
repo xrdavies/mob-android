@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -72,8 +73,20 @@ fun <T> Response<T>.orThrow(): Response<T> {
     throw IOException(runCatching { JSONObject(text).getString("error") }.getOrDefault("HTTP ${code()}"))
 }
 
+const val NEEDS_PAIRING = "This device needs to be paired again"
+
+/** An HTTP failure outside Retrofit (event streams, the live view). */
+open class HttpStatusException(val code: Int, message: String) : IOException(message)
+
+/** mobd refused the device token: pair again, retrying with it is pointless. */
+class UnauthorizedException : HttpStatusException(401, NEEDS_PAIRING)
+
+fun Throwable.isUnauthorized(): Boolean =
+    (this is HttpStatusException && code == 401) || (this is HttpException && code() == 401)
+
 /** A readable message for any request failure, including Retrofit HTTP errors. */
 fun Throwable.readable(): String = when (this) {
+    is HttpException if code() == 401 -> NEEDS_PAIRING
     is HttpException -> response()?.errorBody()?.string()
         ?.let { runCatching { JSONObject(it).getString("error") }.getOrNull() } ?: "HTTP ${code()}"
     is java.net.ConnectException, is java.net.UnknownHostException -> "Cannot reach mobd"
@@ -81,13 +94,32 @@ fun Throwable.readable(): String = when (this) {
     else -> message ?: javaClass.simpleName
 }
 
-class ApiClient(baseUrl: String) {
+/**
+ * Sends the device token to mobd's own origin only (images may point elsewhere) and turns its
+ * 401 into [UnauthorizedException], so Retrofit, streams, images and the live view all see it.
+ */
+class AuthInterceptor(private val base: HttpUrl, private val token: String?) : Interceptor {
+    override fun intercept(chain: Interceptor.Chain): okhttp3.Response {
+        val req = chain.request()
+        val own = req.url.scheme == base.scheme && req.url.host == base.host && req.url.port == base.port
+        val res = chain.proceed(if (own && token != null) req.newBuilder().header("Authorization", "Bearer $token").build() else req)
+        if (own && res.code == 401) {
+            res.close()
+            throw UnauthorizedException()
+        }
+        return res
+    }
+}
+
+/** Talks to one mobd; [token] is the device credential from pairing, null before pairing. */
+class ApiClient(baseUrl: String, val token: String?) {
+    val baseUrl: HttpUrl = normalize(baseUrl)
+
     val okHttpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        .addInterceptor(AuthInterceptor(this.baseUrl, token))
         .build()
-
-    val baseUrl: HttpUrl = normalize(baseUrl)
 
     /** For event streams: an idle stream sends nothing, so reads must not time out. */
     val streamClient: OkHttpClient = okHttpClient.newBuilder().readTimeout(0, TimeUnit.SECONDS).build()
@@ -128,7 +160,7 @@ class ApiClient(baseUrl: String) {
     companion object {
         val gson = com.google.gson.Gson()
 
-        // Used until the user enters a mobd URL; AppState makes no requests then.
+        // Used until the user adds a machine; AppState makes no requests then.
         private const val PLACEHOLDER = "http://localhost/"
 
         /** Turns "192.168.1.5:8080" or "http://host:8080/" into a Retrofit base URL. */
