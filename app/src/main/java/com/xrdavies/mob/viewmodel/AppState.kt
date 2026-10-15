@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.xrdavies.mob.data.AnswerQuestionRequest
 import com.xrdavies.mob.data.ApiClient
 import com.xrdavies.mob.data.Health
 import com.xrdavies.mob.data.Machine
@@ -231,7 +232,23 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
         viewModelScope.launch {
             val q = runCatching { ApiClient(m.mobdUrl).api.getSession(s.id) }.getOrNull()
                 ?.questions?.lastOrNull { it.isPending }
-            notifier.question(m, s, q?.isApproval == true, q?.text, _waitingCount.value)
+            notifier.question(m, s, q, _waitingCount.value)
+        }
+    }
+
+    /** Sends an answer picked or typed in a notification; tells the user when it fails. */
+    suspend fun answerFromNotification(machine: String, session: String, task: String, question: String, answer: String?, approved: Boolean?) {
+        val m = _machines.value.firstOrNull { it.id == machine } ?: return
+        runCatching {
+            val r = ApiClient(m.mobdUrl).api.answerQuestion(task, question, AnswerQuestionRequest(answer?.ifEmpty { null }, approved))
+            check(r.isSuccessful) { r.errorBody()?.string()?.ifBlank { null } ?: "HTTP ${r.code()}" }
+        }.onSuccess {
+            Log.add("answered from notification: ${answer ?: if (approved == true) "approved" else "denied"}")
+            notifier.answered(m, session)
+            if (m.id == _activeMachineId.value) chat.refreshAll()
+        }.onFailure {
+            Log.add("notification answer failed: ${it.readable()}")
+            notifier.answerFailed(m, session, it.readable())
         }
     }
 

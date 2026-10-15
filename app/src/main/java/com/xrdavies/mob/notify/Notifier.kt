@@ -10,13 +10,15 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.RemoteInput
 import androidx.core.content.ContextCompat
 import com.xrdavies.mob.MainActivity
 import com.xrdavies.mob.R
 import com.xrdavies.mob.data.Machine
+import com.xrdavies.mob.data.Question
 import com.xrdavies.mob.data.Session
 
-/** Phone notifications for agent questions and finished turns. */
+/** Phone notifications for agent questions and finished turns; questions can be answered from the notification. */
 class Notifier(private val context: Context) {
     private val manager = NotificationManagerCompat.from(context)
 
@@ -39,7 +41,8 @@ class Notifier(private val context: Context) {
         get() = manager.areNotificationsEnabled() && (Build.VERSION.SDK_INT < 33 ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
 
-    private fun id(m: Machine, s: Session, kind: String) = "${m.id}/${s.id}/$kind".hashCode()
+    private fun id(m: Machine, s: Session, kind: String) = id(m, s.id, kind)
+    private fun id(m: Machine, session: String, kind: String) = "${m.id}/$session/$kind".hashCode()
 
     /** Opens the chat on its machine when tapped. */
     fun openChat(machineId: String, sessionId: String?, code: Int): PendingIntent = PendingIntent.getActivity(
@@ -50,7 +53,10 @@ class Notifier(private val context: Context) {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
-    private fun post(id: Int, channel: String, title: String, text: String, m: Machine, s: Session, number: Int = 0) {
+    private fun post(
+        id: Int, channel: String, title: String, text: String, m: Machine, session: String, number: Int = 0,
+        actions: List<NotificationCompat.Action> = emptyList(),
+    ) {
         if (!allowed) return
         val n = NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
@@ -60,9 +66,10 @@ class Notifier(private val context: Context) {
             .setSubText(m.name)
             .setAutoCancel(true)
             .setPriority(if (channel == QUESTIONS) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
-            .setContentIntent(openChat(m.id, s.id, id))
+            .setContentIntent(openChat(m.id, session, id))
             // Launchers that show badges use this as the app icon's count.
             .apply { if (number > 0) setNumber(number) }
+            .apply { actions.forEach(::addAction) }
             .build()
         com.xrdavies.mob.viewmodel.Log.add("notification: $title — $text")
         try {
@@ -72,18 +79,58 @@ class Notifier(private val context: Context) {
         }
     }
 
-    fun question(m: Machine, s: Session, approval: Boolean, text: String?, waiting: Int = 0) {
+    fun question(m: Machine, s: Session, q: Question?, waiting: Int = 0) {
         cancel(m, s, "done")
-        post(id(m, s, "ask"), QUESTIONS, if (approval) "Approval needed" else "The agent asks", text ?: s.displayTitle, m, s, waiting)
+        val title = if (q?.isApproval == true) "Approval needed" else "The agent asks"
+        post(id(m, s, "ask"), QUESTIONS, title, q?.text ?: s.displayTitle, m, s.id, waiting, q?.let { actions(m, s, it) }.orEmpty())
     }
+
+    /** Approve/deny, a few options and a typed reply; Android shows at most three buttons. */
+    private fun actions(m: Machine, s: Session, q: Question): List<NotificationCompat.Action> {
+        var code = id(m, s, "ask")
+        fun intent(mutable: Boolean, extras: Intent.() -> Unit) = PendingIntent.getBroadcast(
+            context, code++,
+            Intent(context, AnswerReceiver::class.java)
+                .putExtra(EXTRA_MACHINE, m.id).putExtra(EXTRA_SESSION, s.id)
+                .putExtra(AnswerReceiver.EXTRA_TASK, q.taskId).putExtra(AnswerReceiver.EXTRA_QUESTION, q.id)
+                .apply(extras),
+            PendingIntent.FLAG_UPDATE_CURRENT or (if (mutable) PendingIntent.FLAG_MUTABLE else PendingIntent.FLAG_IMMUTABLE),
+        )
+        fun button(label: String, extras: Intent.() -> Unit) =
+            NotificationCompat.Action.Builder(0, label, intent(false, extras))
+                // Answers act on the office Mac, so they need an unlocked phone.
+                .setAuthenticationRequired(true).build()
+        if (q.isApproval) {
+            return listOf(
+                button("Approve") { putExtra(AnswerReceiver.EXTRA_APPROVED, true) },
+                button("Deny") { putExtra(AnswerReceiver.EXTRA_APPROVED, false) },
+            )
+        }
+        val options = q.options.orEmpty()
+        val typed = options.isEmpty() || q.allowText != false
+        val buttons = options.take(if (typed) 2 else 3).map { o -> button(o) { putExtra(AnswerReceiver.EXTRA_ANSWER, o) } }
+        if (!typed) return buttons
+        // RemoteInput fills in the reply, so this intent has to be mutable.
+        val reply = NotificationCompat.Action.Builder(0, if (options.isEmpty()) "Reply" else "Other answer", intent(true) {})
+            .addRemoteInput(RemoteInput.Builder(AnswerReceiver.KEY_REPLY).setLabel("Your answer").build())
+            .setAllowGeneratedReplies(false)
+            .setAuthenticationRequired(true)
+            .build()
+        return buttons + reply
+    }
+
+    /** An answer from a notification did not reach the Mac; replaces the question notification. */
+    fun answerFailed(m: Machine, session: String, message: String) =
+        post(id(m, session, "ask"), QUESTIONS, "Your answer was not sent", "$message. Open the chat to answer.", m, session)
 
     fun finished(m: Machine, s: Session, failed: Boolean) {
         cancel(m, s, "ask")
-        post(id(m, s, "done"), TURNS, if (failed) "Task failed" else "Task finished", s.displayTitle, m, s)
+        post(id(m, s, "done"), TURNS, if (failed) "Task failed" else "Task finished", s.displayTitle, m, s.id)
     }
 
     /** The question was answered (here or on another device). */
-    fun answered(m: Machine, s: Session) = cancel(m, s, "ask")
+    fun answered(m: Machine, s: Session) = answered(m, s.id)
+    fun answered(m: Machine, session: String) = manager.cancel(id(m, session, "ask"))
 
     private fun cancel(m: Machine, s: Session, kind: String) = manager.cancel(id(m, s, kind))
 
