@@ -6,21 +6,21 @@ Native Android app (Kotlin, Jetpack Compose) for [mob](https://github.com/xrdavi
 
 - Android 8.0+ (API level 26+)
 - Android Studio with an SDK for API 37 (builds with AGP 9.4, Gradle 9.6 wrapper, Kotlin 2.4, JDK 17+)
-- Office Mac running [mobd](https://github.com/xrdavies/mob/tree/main/cmd/mobd) (API v3) with Screen Sharing enabled
+- Office Mac running [mobd](https://github.com/xrdavies/mobd) (API v3) with the `stream` feature; Screen Sharing is not needed
 
 ## Features
 
-- **Several office Macs**: add, edit and switch machines (Settings → Machines, or the switcher at the top of the chat list); each has its own chats and desktop sign-in
+- **Several office Macs**: add, edit and switch machines (Settings → Machines, or the switcher at the top of the chat list); each has its own chats, pairing and live view quality
 - **Chats**: chat list drawer with New chat, Pinned / Recent / Archived, and rename, pin, archive, delete per chat
 - **Chat with your office agent** (Codex or Claude Code)
 - **Composer**: attach up to 10 images (re-encoded to JPEG when the phone's format is not accepted), pick the agent for a new chat and its model / reasoning effort (remembered per machine and agent), **Stop** a running turn, add a message to a running Codex turn (steer), queue position while waiting for the desktop
 - **Timeline** like the desktop app: Markdown replies (copyable), agent steps (commands, tools, reasoning, plans, file changes, screenshots) folded into groups and expandable for details, per-turn footer with duration, tokens, cost, failure and Retry
 - **Question and approval cards** in the chat when the agent needs your input; settled ones show the answer
-- **Live desktop view**: a thumbnail drawer under the Chat top bar (hidden by default, toggled with the monitor button; always view-only) and a full-screen view with a **View / Control** switch (tap = click, long-press = right-click, drag = drag, two fingers = scroll, pinch = zoom; a keys bar adds ⌘ ⌥ ⌃ ⇧ for shortcuts, Esc, Tab, arrows and typing the phone's clipboard). Uses mobd's `/vnc` relay and signs in to Screen Sharing as the Mac user from the machine's Desktop sign-in (Settings → Machines); without a sign-in it shows `/screen` snapshots
+- **Live desktop view**: a thumbnail drawer under the Chat top bar (hidden by default, toggled with the monitor button; always view-only) and a full-screen view with a **View / Control** switch (tap = click, long-press = right-click, drag = drag, two fingers = scroll, pinch = zoom; a keys bar adds ⌘ ⌥ ⌃ ⇧ for shortcuts, Esc, Tab, arrows and typing the phone's clipboard). Streamed by mobd over WebRTC (H.264), falling back to mobd's WebSocket where UDP cannot pass (Tailscale Funnel, HTTPS gateways); quality Auto / High / Low from the view or Settings, with a readout of size, fps, kB/s, transport and signal bars. When the live view is off it shows `/screen` snapshots
 - **Live updates**: each machine's `/events` stream keeps the chat list current, and the open chat follows its running turn over `/tasks/{id}/events` (polling only as a fallback)
 - **Notifications** when the agent asks something or a task finishes or fails, for every machine in the list; tap to open the chat. Optional background watching (Settings → Notifications) keeps the streams open with a silent foreground-service notification, since there is no push service on an intranet
-- **Setup warnings**: mobd's readiness checks (Accessibility, Screen Recording, Screen Sharing, agent CLIs) show in the chat header and Settings
-- **No login required**: paste your office Mac's mobd URL and connect
+- **Setup warnings**: mobd's readiness checks (Accessibility, Screen Recording, display, agent CLIs) show in the chat header and Settings
+- **Pairing**: scan or paste the link from `mobd link`; the device credential is stored encrypted with the Android Keystore
 
 ## Setup
 
@@ -49,7 +49,7 @@ Run `make release VERSION=vX.Y.Z`; see [docs/releases.md](docs/releases.md) for 
 - **Jetpack Compose** for all UI
 - **Kotlin Coroutines** + **Flow** for async/reactive state
 - **Retrofit** + **OkHttp** for HTTP + Server-Sent Events
-- **Native VNC client** (`vnc/`): RFB 3.8 over an OkHttp WebSocket to `/vnc`, Apple Remote Desktop sign-in (type 30), ZRLE / CopyRect / Raw; ported from [svnc](https://github.com/xrdavies/svnc)
+- **Live desktop** (`stream/`): `StreamSession` over libwebrtc (`io.github.webrtc-sdk:android`, receive-only H.264 and data channels), `WsPlayer` (WebSocket fallback decoded by `MediaCodec` into the same renderers), and the pure protocol code in `StreamProtocol`
 - **State**: `AppState` (machines, health, live view) owns one `ChatStore` (chat list and the open conversation) for the active machine; both live in `MobApplication`
 - **Navigation Compose** for the bottom bar; a modal drawer for the chat list
 
