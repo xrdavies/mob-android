@@ -10,6 +10,7 @@ android {
     defaultConfig {
         applicationId = "com.xrdavies.mob"
         minSdk = 26
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         targetSdk = 37
         // Release CI injects the tag version; local builds keep the defaults.
         versionCode = System.getenv("MOB_VERSION_CODE")?.toInt() ?: 1
@@ -97,6 +98,9 @@ dependencies {
     
     testImplementation("junit:junit:4.13.2")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    // LiveStreamTest: a real live view against a mobd, on an emulator or phone (opt-in).
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

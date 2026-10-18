@@ -49,6 +49,8 @@ fun textMessage(text: String): String = gson.toJson(mapOf("t" to "text", "text" 
 fun scrollMessage(x: Double, y: Double, dx: Double, dy: Double): String =
     gson.toJson(mapOf("t" to "scroll", "x" to round(x), "y" to round(y), "dx" to dx.roundToInt(), "dy" to dy.roundToInt()))
 
+fun keyframeMessage(): String = gson.toJson(mapOf("t" to "keyframe"))
+
 fun resizeMessage(maxWidth: Int, maxHeight: Int): String =
     gson.toJson(mapOf("t" to "resize", "maxWidth" to maxWidth, "maxHeight" to maxHeight))
 

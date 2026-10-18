@@ -52,6 +52,10 @@ class StreamSession(context: Context) : LiveSession {
     private val _stats = MutableStateFlow(StreamStats())
     val stats: StateFlow<StreamStats> = _stats
 
+    /** Where mobd last reported the office pointer, normalized (0..1). */
+    private val _cursor = MutableStateFlow<Pair<Double, Double>?>(null)
+    val cursor: StateFlow<Pair<Double, Double>?> = _cursor
+
     private val _modifiers = MutableStateFlow<Set<Int>>(emptySet())
     override val modifiers: StateFlow<Set<Int>> = _modifiers
     override val pixelScroll: Boolean get() = true
@@ -123,6 +127,7 @@ class StreamSession(context: Context) : LiveSession {
         if (want == opened) return
         if (canResize && c.send(c.control, resizeMessage(want.first, want.second))) {
             opened = want
+            c.nudge()
         } else {
             connect(c.client, c.quality, canResize, fallbackSize, _state.value.control, c.onUnauthorized)
         }
@@ -238,6 +243,30 @@ class StreamSession(context: Context) : LiveSession {
         var addresses = emptyMap<String, String>()
         var prev: StatsSample? = null
         var closed = false
+        /** When a frame last came out of the decoder. */
+        var lastFrame = 0L
+        private var nudgeSince = 0L
+        private var nudges = 0
+        /**
+         * Some decoders (the emulator's software H.264, some phones) hold a frame until the next one
+         * arrives, and an idle desktop sends nothing more after a keyframe: no picture for seconds
+         * after connecting or resizing. While none has come out, ask mobd for another keyframe.
+         */
+        private val nudgeTick = object : Runnable {
+            override fun run() {
+                if (!current() || lastFrame > nudgeSince || nudges >= 8) return
+                nudges++
+                send(control, keyframeMessage())
+                main.postDelayed(this, 700)
+            }
+        }
+
+        fun nudge() {
+            main.removeCallbacks(nudgeTick)
+            nudgeSince = System.currentTimeMillis()
+            nudges = 0
+            main.postDelayed(nudgeTick, 700)
+        }
         private val frames = VideoSink { frame ->
             val w = frame.rotatedWidth
             val h = frame.rotatedHeight
@@ -363,6 +392,7 @@ class StreamSession(context: Context) : LiveSession {
         }
 
         fun onFrame(w: Int, h: Int) {
+            lastFrame = System.currentTimeMillis()
             val s = _state.value
             if (s.status == VncStatus.Connecting) {
                 main.removeCallbacks(timeout)
@@ -382,7 +412,7 @@ class StreamSession(context: Context) : LiveSession {
                 is Control.Stats -> _stats.value = _stats.value.copy(kbps = m.kbps, loss = m.loss)
                 is Control.Ended -> fail(m.message)
                 is Control.Error -> Log.add("live view: ${m.about}: ${m.message}")
-                is Control.Cursor -> Unit
+                is Control.Cursor -> _cursor.value = m.x to m.y
             }
         }
 
@@ -417,6 +447,7 @@ class StreamSession(context: Context) : LiveSession {
             main.removeCallbacks(timeout)
             main.removeCallbacks(gatherTimeout)
             main.removeCallbacks(statsTick)
+            main.removeCallbacks(nudgeTick)
             session?.let(::closeSession)
             track?.let { t -> sinks.forEach(t::removeSink); t.removeSink(frames) }
             track = null
@@ -435,7 +466,10 @@ class StreamSession(context: Context) : LiveSession {
 
             override fun onConnectionChange(state: PeerConnection.PeerConnectionState) = post {
                 when (state) {
-                    PeerConnection.PeerConnectionState.CONNECTED -> Log.add("live view: WebRTC connected after ${ms()} ms")
+                    PeerConnection.PeerConnectionState.CONNECTED -> {
+                        Log.add("live view: WebRTC connected after ${ms()} ms")
+                        nudge()
+                    }
                     PeerConnection.PeerConnectionState.FAILED ->
                         fail(if (_state.value.status == VncStatus.Connected) "The live view connection was lost" else "The office Mac could not be reached over WebRTC")
                     else -> Unit

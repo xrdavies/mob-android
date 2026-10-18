@@ -1,5 +1,6 @@
 package com.xrdavies.mob.ui.settings
 
+import com.xrdavies.mob.stream.LiveQuality
 import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.background
@@ -117,6 +118,7 @@ fun SettingsScreen(appState: AppState) {
                 editing = null
                 pairing = m.id
             },
+            onQuality = { appState.setLiveQuality(m.id, it) },
             onDismiss = { editing = null },
         )
     }
@@ -236,11 +238,13 @@ private fun MachineDialog(
     initialPassword: String,
     onSave: (Machine, password: String) -> Unit,
     onPairAgain: () -> Unit,
+    onQuality: (LiveQuality) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var name by remember { mutableStateOf(initial.name) }
     var user by remember { mutableStateOf(initial.vncUsername) }
     var password by remember { mutableStateOf(initialPassword) }
+    var quality by remember { mutableStateOf(LiveQuality.of(initial.liveQuality)) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Edit machine") },
@@ -255,6 +259,18 @@ private fun MachineDialog(
                     }
                     TextButton(onClick = onPairAgain) { Text("Pair again") }
                 }
+                // Applies at once (an open live view reconnects), like the switch in the live view.
+                Text("Live view quality", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    LiveQuality.entries.forEachIndexed { i, q ->
+                        SegmentedButton(
+                            selected = quality == q,
+                            onClick = { quality = q; onQuality(q) },
+                            shape = SegmentedButtonDefaults.itemShape(i, LiveQuality.entries.size),
+                        ) { Text(q.label) }
+                    }
+                }
+                Text(quality.hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("Desktop sign-in (optional)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 OutlinedTextField(user, { user = it }, label = { Text("Mac user name") }, supportingText = { Text("Leave empty to use a Screen Sharing (VNC) password") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(
@@ -270,7 +286,7 @@ private fun MachineDialog(
         },
         confirmButton = {
             TextButton(onClick = {
-                onSave(initial.copy(name = name.trim().ifBlank { "Office Mac" }, vncUsername = user.trim()), password)
+                onSave(initial.copy(name = name.trim().ifBlank { "Office Mac" }, vncUsername = user.trim(), liveQuality = quality.wire), password)
             }) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },

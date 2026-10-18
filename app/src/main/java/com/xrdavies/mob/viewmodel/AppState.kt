@@ -181,7 +181,7 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
                 delay(30_000)
             }
         }
-        if (desktopUsers > 0 && ok) connectDesktop() else vnc.disconnect()
+        if (desktopUsers > 0 && ok) connectDesktop() else { vnc.disconnect(); stream.disconnect() }
     }
 
     fun selectMachine(id: String) {
@@ -408,12 +408,14 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
         desktopFor = null
     }
 
+    /** Connects the live view over WebRTC when mobd has `stream`, VNC otherwise; a session already up on that transport is kept. */
     fun connectDesktop() {
-        if (++desktopUsers > 1) return
         val m = activeMachine?.takeIf(::usable) ?: return
         val h = _health.value
         val useStream = h?.supports("stream") == true
-        if (desktopFor == useStream && (vnc.state.value.status != com.xrdavies.mob.vnc.VncStatus.Idle || stream.state.value.status != com.xrdavies.mob.vnc.VncStatus.Idle)) return
+        val active = (if (useStream) stream else vnc).state.value.status
+        // Health checks call this too: they must not restart a working session. After an error, reconnect.
+        if (desktopFor == useStream && (active == com.xrdavies.mob.vnc.VncStatus.Connecting || active == com.xrdavies.mob.vnc.VncStatus.Connected)) return
         desktopFor = useStream
         vnc.disconnect()
         stream.disconnect()
