@@ -42,6 +42,7 @@ fun SettingsScreen(appState: AppState) {
     var pairing by rememberSaveable { mutableStateOf<String?>(null) }
     var deleting by remember { mutableStateOf<Machine?>(null) }
     var showLog by remember { mutableStateOf(false) }
+    var showLicenses by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -100,11 +101,13 @@ fun SettingsScreen(appState: AppState) {
             SettingsCard("About") {
                 Text("mob-android v0.1.0")
                 Text("MIT License", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = { showLicenses = true }, contentPadding = PaddingValues(0.dp)) { Text("Open source licences") }
             }
         }
     }
 
     if (showLog) LogDialog { showLog = false }
+    if (showLicenses) AcknowledgementsDialog { showLicenses = false }
 
     editing?.let { m ->
         MachineDialog(
