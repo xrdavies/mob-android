@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <!-- Generated from mob/public/logo.svg (Screen Buddy); keep the mascot in sync with it. -->
+  <!-- Android themed (monochrome) icon: the mascot as line art; the launcher tints it. -->
+  <g transform="translate(256 256) scale(0.8) translate(-236.5 -233.5)">
+  <g stroke="#000000" stroke-width="11" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M252 126V92"/>
+    <circle cx="252" cy="78" r="19" fill="none"/>
+    <path d="M100 277C62 278 56 315 76 330" stroke-width="28"/>
+    <path d="M100 277C62 278 56 315 76 330" stroke="#000000" stroke-width="14"/>
+    <path d="M360 270C388 277 406 296 399 323" stroke-width="28"/>
+    <path d="M360 270C388 277 406 296 399 323" stroke="#000000" stroke-width="14"/>
+    <path d="M199 347L184 385M290 347L306 385" stroke-width="25"/>
+    <path d="M166 381H199C215 381 223 393 223 408H147C147 393 152 381 166 381Z" fill="none"/>
+    <path d="M288 381H321C336 381 343 393 343 408H270C270 393 276 381 288 381Z" fill="none"/>
+    <rect x="94" y="127" width="299" height="226" rx="58" fill="none"/>
+    <rect x="117" y="150" width="253" height="159" rx="38" fill="none"/>
+    <path d="M142 200V190C142 181 149 175 158 175H184" stroke="#000000" stroke-width="10"/>
+    <path d="M181 209V232M300 209V232" stroke="#000000" stroke-width="19"/>
+    <path d="M222 251Q243 276 265 251" stroke="#000000" stroke-width="10"/>
+    <path d="M218 330H251" stroke="#000000" stroke-width="8"/>
+    <circle cx="278" cy="330" r="5" fill="none" stroke="#000000"/>
+    <path d="M72 309C55 309 51 323 56 335C60 347 76 353 86 343L95 333C105 321 94 307 83 312" fill="none"/>
+    <path d="M338 292L422 336L388 345L374 382Z" fill="none"/>
+  </g>
+  </g>
+</svg>

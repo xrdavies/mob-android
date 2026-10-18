@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Cream to lavender, top left to bottom right, as in mob-site's app icon. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="#4F46E5" />
+    <gradient
+        android:angle="315"
+        android:startColor="#FFFDFA"
+        android:endColor="#E5E0F5" />
 </shape>
