@@ -236,6 +236,7 @@ private fun DesktopCanvas(appState: AppState, snapshotWidth: Int, modifier: Modi
     val frame by vnc.frame.collectAsState()
     val live = state.status == VncStatus.Connected
     var snapshot by remember { mutableStateOf<Bitmap?>(null) }
+    var snapshotEtag by remember { mutableStateOf<String?>(null) }
     var snapshotError by remember { mutableStateOf<String?>(null) }
     var snapshotAt by remember { mutableStateOf<java.time.LocalTime?>(null) }
 
@@ -259,7 +260,11 @@ private fun DesktopCanvas(appState: AppState, snapshotWidth: Int, modifier: Modi
         val client = appState.apiClient
         while (isActive) {
             try {
-                snapshot = client.screen(snapshotWidth)
+                val snap = client.screen(snapshotWidth, 65, snapshotEtag)
+                if (snap != null) {
+                    snapshot = snap.bitmap
+                    snapshotEtag = snap.etag
+                }
                 snapshotAt = java.time.LocalTime.now()
                 snapshotError = null
             } catch (e: CancellationException) {
@@ -271,7 +276,7 @@ private fun DesktopCanvas(appState: AppState, snapshotWidth: Int, modifier: Modi
                     break
                 }
             }
-            delay(2000)
+            delay(3000)
         }
     }
 

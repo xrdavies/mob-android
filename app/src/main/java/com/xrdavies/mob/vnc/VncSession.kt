@@ -38,9 +38,9 @@ data class VncState(
  * The thumbnail and the full-screen view draw the same [bitmap]; only the full-screen view
  * sends input, and only in Control mode. Call from the main thread.
  */
-class VncSession {
+class VncSession : com.xrdavies.mob.stream.LiveSession {
     private val _state = MutableStateFlow(VncState())
-    val state: StateFlow<VncState> = _state
+    override val state: StateFlow<VncState> = _state
 
     /** Bumped after every framebuffer update so views redraw. */
     private val _frame = MutableStateFlow(0L)
@@ -61,7 +61,7 @@ class VncSession {
         conn = Connection(http, url, username, password, onUnauthorized)
     }
 
-    fun disconnect() {
+    override fun disconnect() {
         val c = conn ?: return
         conn = null
         c.close()
@@ -69,27 +69,27 @@ class VncSession {
         _state.value = VncState(VncStatus.Idle, "Disconnected")
     }
 
-    fun setControl(on: Boolean) {
+    override fun setControl(on: Boolean) {
         val connected = _state.value.status == VncStatus.Connected
         _state.value = _state.value.copy(control = on && connected)
         if (!on) _modifiers.value = emptySet()
     }
 
-    fun click(x: Int, y: Int, button: Int = BUTTON_LEFT) {
+    override fun click(x: Int, y: Int, button: Int) {
         pointer(x, y, 0)
         pointer(x, y, button)
         pointer(x, y, 0)
     }
 
-    fun pointer(x: Int, y: Int, buttons: Int) {
+    override fun pointer(x: Int, y: Int, buttons: Int) {
         if (_state.value.control) conn?.rfb?.pointer(x, y, buttons)
     }
 
     /** Modifiers latched from the keys bar; they apply to the next key, then release. */
     private val _modifiers = MutableStateFlow<Set<Int>>(emptySet())
-    val modifiers: StateFlow<Set<Int>> = _modifiers
+    override val modifiers: StateFlow<Set<Int>> = _modifiers
 
-    fun toggleModifier(keysym: Int) {
+    override fun toggleModifier(keysym: Int) {
         _modifiers.value = _modifiers.value.let { if (keysym in it) it - keysym else it + keysym }
     }
 
@@ -103,13 +103,13 @@ class VncSession {
         if (_modifiers.value.isNotEmpty()) _modifiers.value = emptySet()
     }
 
-    fun tapKey(keysym: Int) {
+    override fun tapKey(keysym: Int) {
         val rfb = controlled() ?: return
         press(rfb, keysym)
     }
 
     /** Types one character from the phone's keyboard. */
-    fun type(c: Char) {
+    override fun type(c: Char) {
         val rfb = controlled() ?: return
         if (c == '\n') return press(rfb, XK_RETURN)
         val keysym = if (c.code < 0x100) c.code else 0x01000000 or c.code
@@ -120,13 +120,13 @@ class VncSession {
     }
 
     /** Types text from the phone's clipboard (no shared clipboard with the Mac). */
-    fun typeText(text: String) {
+    override fun typeText(text: String) {
         if (controlled() == null) return
         text.take(MAX_PASTE).forEach { type(it) }
     }
 
     /** Scroll wheel: one notch per step; negative dy scrolls up, negative dx left. */
-    fun scroll(x: Int, y: Int, dx: Int, dy: Int) {
+    override fun scroll(x: Int, y: Int, dx: Int, dy: Int) {
         val rfb = controlled() ?: return
         fun notch(mask: Int, n: Int) = repeat(n) {
             rfb.pointer(x, y, mask)

@@ -75,6 +75,8 @@ fun <T> Response<T>.orThrow(): Response<T> {
 
 const val NEEDS_PAIRING = "This device needs to be paired again"
 
+data class Snapshot(val bitmap: Bitmap, val etag: String)
+
 /** An HTTP failure outside Retrofit (event streams, the live view). */
 open class HttpStatusException(val code: Int, message: String) : IOException(message)
 
@@ -141,21 +143,27 @@ class ApiClient(baseUrl: String, val token: String?) {
     val vncUrl: String
         get() = baseUrl.resolve("vnc").toString().replaceFirst("http", "ws")
 
-    /** A desktop snapshot from GET /screen, scaled down to [maxWidth]. */
-    suspend fun screen(maxWidth: Int): Bitmap = withContext(Dispatchers.IO) {
+    /** A desktop snapshot from GET /screen, scaled down to [maxWidth]; null on 304 not modified. */
+    suspend fun screen(maxWidth: Int, quality: Int = 65, etag: String? = null): Snapshot? = withContext(Dispatchers.IO) {
         val url = baseUrl.newBuilder().addPathSegment("screen")
             .addQueryParameter("maxWidth", maxWidth.toString())
-            .addQueryParameter("quality", "70")
+            .addQueryParameter("quality", quality.toString())
             .build()
-        okHttpClient.newCall(Request.Builder().url(url).build()).execute().use { r ->
+        val req = Request.Builder().url(url)
+        if (etag != null) req.header("If-None-Match", etag)
+        okHttpClient.newCall(req.build()).execute().use { r ->
+            if (r.code == 304) return@withContext null
             val body = r.body ?: throw IOException("Empty response")
             if (!r.isSuccessful) {
                 val text = body.string()
                 throw IOException(runCatching { JSONObject(text).getString("error") }.getOrDefault("HTTP ${r.code}"))
             }
-            BitmapFactory.decodeStream(body.byteStream()) ?: throw IOException("Not an image")
+            val bm = BitmapFactory.decodeStream(body.byteStream()) ?: throw IOException("Not an image")
+            Snapshot(bm, r.header("ETag").orEmpty())
         }
     }
+
+    fun streamUrl() = baseUrl.newBuilder().addPathSegment("stream").build().toString()
 
     companion object {
         val gson = com.google.gson.Gson()

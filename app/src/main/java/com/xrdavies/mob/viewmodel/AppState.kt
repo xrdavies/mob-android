@@ -19,6 +19,9 @@ import com.xrdavies.mob.data.pair as redeemInvite
 import com.xrdavies.mob.data.readable
 import com.xrdavies.mob.notify.Notifier
 import com.xrdavies.mob.notify.WatchService
+import com.xrdavies.mob.stream.LiveQuality
+import com.xrdavies.mob.stream.LiveSession
+import com.xrdavies.mob.stream.StreamSession
 import com.xrdavies.mob.vnc.VncSession
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
@@ -65,7 +68,11 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
 
     /** One live view shared by the thumbnail and the full-screen view. */
     val vnc = VncSession()
+    val stream = StreamSession(appContext)
+    private val _live = MutableStateFlow<LiveSession>(vnc)
+    val live: StateFlow<LiveSession> = _live
     private var desktopUsers = 0
+    private var desktopFor: Boolean? = null
 
     private var _apiClient: ApiClient = clientFor(activeMachine)
     val apiClient: ApiClient
@@ -392,13 +399,36 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     }
 
     fun releaseDesktop() {
-        if (--desktopUsers == 0) vnc.disconnect()
+        if (--desktopUsers == 0) { vnc.disconnect(); stream.disconnect() }
+    }
+
+    fun disconnectDesktop() {
+        vnc.disconnect()
+        stream.disconnect()
+        desktopFor = null
     }
 
     fun connectDesktop() {
+        if (++desktopUsers > 1) return
         val m = activeMachine?.takeIf(::usable) ?: return
-        val client = _apiClient
-        vnc.connect(client.okHttpClient, client.vncUrl, m.vncUsername, vncPassword(m)) { markNeedsPairing(m.id, client.token) }
+        val h = _health.value
+        val useStream = h?.supports("stream") == true
+        if (desktopFor == useStream && (vnc.state.value.status != com.xrdavies.mob.vnc.VncStatus.Idle || stream.state.value.status != com.xrdavies.mob.vnc.VncStatus.Idle)) return
+        desktopFor = useStream
+        vnc.disconnect()
+        stream.disconnect()
+        if (useStream) {
+            _live.value = stream
+            val screen = appContext.resources.displayMetrics.let { it.widthPixels to it.heightPixels }
+            stream.connect(_apiClient, LiveQuality.of(m.liveQuality), h?.supports("streamResize") == true, screen) {
+                markNeedsPairing(m.id, _apiClient.token)
+            }
+        } else {
+            _live.value = vnc
+            vnc.connect(_apiClient.okHttpClient, _apiClient.vncUrl, m.vncUsername, vncPassword(m)) {
+                markNeedsPairing(m.id, _apiClient.token)
+            }
+        }
     }
 
     fun checkHealth() {
@@ -445,7 +475,23 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     }
 
     fun closeLiveView() {
-        vnc.setControl(false)
+        live.value.setControl(false)
         _showLiveView.value = false
+    }
+
+    fun setLiveQuality(id: String, quality: LiveQuality) {
+        val m = _machines.value.firstOrNull { it.id == id } ?: return
+        val updated = _machines.value.map { if (it.id == id) it.copy(liveQuality = quality.wire) else it }
+        _machines.value = updated
+        saveMachines(updated)
+        if (id == _activeMachineId.value && live.value === stream) {
+            val control = stream.state.value.control
+            stream.disconnect()
+            val h = _health.value
+            val screen = appContext.resources.displayMetrics.let { it.widthPixels to it.heightPixels }
+            stream.connect(_apiClient, quality, h?.supports("streamResize") == true, screen, control) {
+                markNeedsPairing(id, _apiClient.token)
+            }
+        }
     }
 }

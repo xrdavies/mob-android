@@ -36,6 +36,8 @@ android {
     buildTypes {
         release {
             if (keystore != null) signingConfig = signingConfigs.getByName("release")
+            // libwebrtc is ~12 MB per ABI; release ships phone ABIs only (debug keeps all for emulators).
+            ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -82,6 +84,9 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:okhttp-sse:4.12.0")
+
+    // Live desktop: libwebrtc (LiveKit's maintained build of Google's WebRTC, BSD)
+    implementation("io.github.webrtc-sdk:android:150.7871.01")
 
     // Pairing QR codes
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")

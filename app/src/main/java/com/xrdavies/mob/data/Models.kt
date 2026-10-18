@@ -203,6 +203,8 @@ data class Machine(
     val clientId: String? = null,
     /** mobd refused the token (or there is none yet): no requests until paired again. */
     val needsPairing: Boolean? = null,
+    /** Live desktop quality: auto (default), high or low; null uses mobd's auto profile. */
+    val liveQuality: String? = null,
 )
 
 /** The saved machine list, or null when it cannot be read. */
