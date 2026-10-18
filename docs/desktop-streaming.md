@@ -34,4 +34,10 @@ size per ABI and license notices.
 | A6 | Remove `vnc/` code and tests, Mac sign-in fields | build |
 | A7 | Tests: signaling, message encoding, transport choice, migration | `./gradlew testDebugUnitTest` |
 
-Starts after the desktop app (D2) confirms the protocol. Merges with the other repos at release.
+Unblocked: the desktop app confirmed the protocol (D2) and built steps 3–5. A5 uses the WebSocket
+protocol as revised in mobd M7b (540p start, `resize`, try the WebSocket first where it was needed).
+A6 happens together with mobd M8 and desktop D6. Order across repos: see mobd's plan, "Order".
+
+Follow the desktop design where it applies: the inline view only watches and the large view controls,
+with a View/Control switch; quality switched from the view as well as Settings; a readout of size, fps,
+kB/s, transport and network with signal bars; WebRTC gets a 5 s head start before the WebSocket.
