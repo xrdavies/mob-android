@@ -15,7 +15,8 @@ import kotlin.math.abs
  * Opens a real live view against a running mobd, so WebRTC, H.264 decoding and the data channels are
  * exercised on the device. Skipped unless run with
  * `-Pandroid.testInstrumentationRunnerArguments.mobdUrl=… -P….mobdToken=…`.
- * It only moves the office pointer: no clicks or keys.
+ * It only moves the office pointer: no clicks or keys. "Blocked" drops ICE candidates both ways, like
+ * a network without UDP.
  */
 @RunWith(AndroidJUnit4::class)
 class LiveStreamTest {
@@ -38,17 +39,27 @@ class LiveStreamTest {
 
     private fun near(c: Pair<Double, Double>?, x: Double, y: Double) = c != null && abs(c.first - x) < 0.01 && abs(c.second - y) < 0.01
 
-    @Test
-    fun liveViewAgainstMobd() {
+    @Test fun webRTC() = check(blocked = false, remembered = false, expect = StreamSession.WEBRTC)
+    @Test fun webSocketWhenWebRTCIsBlocked() = check(blocked = true, remembered = false, expect = StreamSession.WEBSOCKET)
+    @Test fun rememberedWebSocketStartsSooner() = check(blocked = true, remembered = true, expect = StreamSession.WEBSOCKET)
+    @Test fun rememberedMachineReturnsToWebRTC() = check(blocked = false, remembered = true, expect = StreamSession.WEBRTC)
+
+    private fun check(blocked: Boolean, remembered: Boolean, expect: String) {
         val args = InstrumentationRegistry.getArguments()
         val url = args.getString("mobdUrl")
         val token = args.getString("mobdToken")
         assumeTrue("pass mobdUrl and mobdToken to run against a mobd", url != null && token != null)
         val s = main { StreamSession(inst.targetContext) }
+        var won: String? = null
+        main {
+            s.blockWebRTC = blocked
+            s.onTransport = { won = it }
+        }
         val started = System.currentTimeMillis()
-        main { s.connect(ApiClient(url!!, token), LiveQuality.Auto, canResize = true, screen = 1280 to 832) }
+        main { s.connect(ApiClient(url!!, token), LiveQuality.Auto, canResize = true, screen = 1280 to 832, preferWebSocket = remembered) }
         waitFor("first picture", 15) { s.state.value.status != VncStatus.Connecting }
         assertEquals(s.state.value.detail, VncStatus.Connected, s.state.value.status)
+        assertEquals(expect, main { won })
         val first = System.currentTimeMillis() - started
         val opened = main { s.state.value.width to s.state.value.height }
 
@@ -72,7 +83,7 @@ class LiveStreamTest {
         waitFor("640×360 after resize", 5) { s.state.value.width == 640 }
         waitFor("readout", 4) { s.stats.value.readout != null }
         val text = main { readoutText(s.state.value.width, s.state.value.height, s.stats.value.readout) }
-        println("live: first picture $first ms at ${opened.first}×${opened.second}; cursor before control $before; $text")
+        println("live: blocked=$blocked remembered=$remembered: first picture $first ms over ${main { won }} at ${opened.first}×${opened.second}; cursor before control $before; $text")
         main { s.disconnect() }
     }
 }

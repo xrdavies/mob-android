@@ -422,7 +422,10 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
         if (useStream) {
             _live.value = stream
             val screen = appContext.resources.displayMetrics.let { it.widthPixels to it.heightPixels }
-            stream.connect(_apiClient, LiveQuality.of(m.liveQuality), h?.supports("streamResize") == true, screen) {
+            // Remember which transport carried the picture, so the next connect races the WebSocket sooner.
+            stream.onTransport = { t -> rememberTransport(m.id, t) }
+            stream.connect(_apiClient, LiveQuality.of(m.liveQuality), h?.supports("streamResize") == true, screen,
+                preferWebSocket = m.liveWebSocket == true) {
                 markNeedsPairing(m.id, _apiClient.token)
             }
         } else {
@@ -481,6 +484,15 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
         _showLiveView.value = false
     }
 
+    private fun rememberTransport(id: String, transport: String) {
+        val ws = if (transport == StreamSession.WEBSOCKET) true else null
+        val m = _machines.value.firstOrNull { it.id == id } ?: return
+        if (m.liveWebSocket == ws) return
+        val updated = _machines.value.map { if (it.id == id) it.copy(liveWebSocket = ws) else it }
+        _machines.value = updated
+        saveMachines(updated)
+    }
+
     fun setLiveQuality(id: String, quality: LiveQuality) {
         val m = _machines.value.firstOrNull { it.id == id } ?: return
         val updated = _machines.value.map { if (it.id == id) it.copy(liveQuality = quality.wire) else it }
@@ -491,7 +503,7 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
             stream.disconnect()
             val h = _health.value
             val screen = appContext.resources.displayMetrics.let { it.widthPixels to it.heightPixels }
-            stream.connect(_apiClient, quality, h?.supports("streamResize") == true, screen, control) {
+            stream.connect(_apiClient, quality, h?.supports("streamResize") == true, screen, control, m.liveWebSocket == true) {
                 markNeedsPairing(id, _apiClient.token)
             }
         }

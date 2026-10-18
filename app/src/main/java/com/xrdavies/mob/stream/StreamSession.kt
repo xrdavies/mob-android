@@ -34,6 +34,7 @@ import org.webrtc.VideoSink
 import org.webrtc.VideoTrack
 import java.io.IOException
 import java.nio.ByteBuffer
+import kotlin.math.roundToInt
 
 /** Measured once a second while connected, plus mobd's own view of the link. */
 data class StreamStats(val readout: Readout? = null, val kbps: Int = 0, val loss: Double = 0.0)
@@ -41,8 +42,11 @@ data class StreamStats(val readout: Readout? = null, val kbps: Int = 0, val loss
 /**
  * The live desktop over WebRTC (mobd docs/desktop-streaming.md): one non-trickle POST /stream with
  * the offer, a receive-only H.264 track drawn by [StreamVideo]s, and the `control`, `input` and
- * `pointer` (unreliable, latest wins) data channels. One session is shared by the thumbnail and
- * the full-screen view; it is sized to the largest view showing it. Call from the main thread.
+ * `pointer` (unreliable, latest wins) data channels. Where UDP cannot pass, the same session continues
+ * over mobd's WebSocket ([WsPlayer]): WebRTC gets a head start, then the WebSocket replaces it, or races
+ * beside it where it was needed last time; mobd sends video on the first transport to connect, so the
+ * first frame says which one won. One session is shared by the thumbnail and the full-screen view; it
+ * is sized to the largest view showing it. Call from the main thread.
  */
 class StreamSession(context: Context) : LiveSession {
     private val appContext = context.applicationContext
@@ -63,7 +67,14 @@ class StreamSession(context: Context) : LiveSession {
     private val main = Handler(Looper.getMainLooper())
     private var conn: Conn? = null
     private var attempt = 0
-    private val sinks = mutableSetOf<VideoSink>()
+    // Read from the WebSocket decoder's thread too.
+    private val sinks = java.util.concurrent.CopyOnWriteArraySet<VideoSink>()
+
+    /** Called once per session when a transport wins ("WebRTC" or "WebSocket"), to remember it. */
+    var onTransport: ((String) -> Unit)? = null
+
+    /** Tests only: drop ICE candidates both ways, like a network without UDP. */
+    var blockWebRTC = false
 
     /** The views showing the stream, in device pixels; the stream is fitted to the largest. */
     private val views = mutableMapOf<String, Pair<Int, Int>>()
@@ -75,7 +86,8 @@ class StreamSession(context: Context) : LiveSession {
     val eglContext: EglBase.Context get() = egl.eglBaseContext
 
     /** [onUnauthorized] runs on the main thread when mobd refuses the device token. */
-    fun connect(client: ApiClient, quality: LiveQuality, canResize: Boolean, screen: Pair<Int, Int>, control: Boolean = false, onUnauthorized: () -> Unit = {}) {
+    /** [preferWebSocket]: the WebSocket carried this machine's last session; race it after 1 s. */
+    fun connect(client: ApiClient, quality: LiveQuality, canResize: Boolean, screen: Pair<Int, Int>, control: Boolean = false, preferWebSocket: Boolean = false, onUnauthorized: () -> Unit = {}) {
         disconnect()
         this.canResize = canResize
         fallbackSize = screen
@@ -84,7 +96,7 @@ class StreamSession(context: Context) : LiveSession {
         _stats.value = StreamStats()
         opened = target()
         Log.add("live view: WebRTC to ${client.baseUrl} at ${opened.first}×${opened.second} (${quality.wire})")
-        conn = Conn(n, client, quality, control, onUnauthorized).also { it.start() }
+        conn = Conn(n, client, quality, control, preferWebSocket, onUnauthorized).also { it.start() }
     }
 
     override fun disconnect() {
@@ -101,6 +113,7 @@ class StreamSession(context: Context) : LiveSession {
     fun addSink(sink: VideoSink) {
         sinks += sink
         conn?.track?.addSink(sink)
+        conn?.player?.askKeyframe() // a new view has nothing to decode until the next keyframe
     }
 
     fun removeSink(sink: VideoSink) {
@@ -129,7 +142,7 @@ class StreamSession(context: Context) : LiveSession {
             opened = want
             c.nudge()
         } else {
-            connect(c.client, c.quality, canResize, fallbackSize, _state.value.control, c.onUnauthorized)
+            connect(c.client, c.quality, canResize, fallbackSize, _state.value.control, c.via == WEBSOCKET, c.onUnauthorized)
         }
     }
 
@@ -230,8 +243,15 @@ class StreamSession(context: Context) : LiveSession {
         val client: ApiClient,
         val quality: LiveQuality,
         val takeControl: Boolean,
+        val preferWebSocket: Boolean,
         val onUnauthorized: () -> Unit,
     ) {
+        /** The transport that won; everything sent goes there. */
+        var via: String? = null
+        var player: WsPlayer? = null
+        var pcOpen = true
+        var lastRtt: Int? = null
+        private val grace = Runnable { startWs(preferWebSocket) }
         val started = System.currentTimeMillis()
         val pc: PeerConnection
         var control: DataChannel? = null
@@ -256,7 +276,9 @@ class StreamSession(context: Context) : LiveSession {
             override fun run() {
                 if (!current() || lastFrame > nudgeSince || nudges >= 8) return
                 nudges++
-                send(control, keyframeMessage())
+                // The WebSocket while it is being tried or carries the session; else the control channel.
+                val p = player
+                if (p != null && via != WEBRTC) p.askKeyframe() else send(control, keyframeMessage())
                 main.postDelayed(this, 700)
             }
         }
@@ -270,13 +292,32 @@ class StreamSession(context: Context) : LiveSession {
         private val frames = VideoSink { frame ->
             val w = frame.rotatedWidth
             val h = frame.rotatedHeight
-            post { onFrame(w, h) }
+            post {
+                if (via == null) choose(WEBRTC)
+                if (via == WEBRTC) onFrame(w, h)
+            }
         }
         private val timeout = Runnable { fail("The live view did not start. Is the office Mac reachable from here?") }
         private val gatherTimeout = Runnable { offer() }
         private val statsTick = object : Runnable {
             override fun run() {
                 if (!current()) return
+                player?.takeIf { via == WEBSOCKET }?.let { p ->
+                    // The WebSocket's readout: bytes and frames counted by the player, round-trip time from mobd.
+                    val now = System.currentTimeMillis()
+                    prev?.let { last ->
+                        val seconds = (now - last.atMs) / 1000.0
+                        _stats.value = _stats.value.copy(readout = Readout(
+                            kBps = ((p.bytes - last.bytes) / 1000 / seconds).toInt().coerceAtLeast(0),
+                            fps = ((p.frames - last.frames) / seconds).roundToInt().coerceAtLeast(0),
+                            rttMs = lastRtt, transport = WEBSOCKET,
+                        ))
+                    }
+                    prev = StatsSample(now, p.bytes.toDouble(), p.frames.toDouble())
+                    main.postDelayed(this, 1000)
+                    return
+                }
+                if (!pcOpen) return
                 pc.getStats { report ->
                     val entries = report.statsMap.values.map { StatEntry(it.type, it.id, it.members) }
                     post {
@@ -341,7 +382,8 @@ class StreamSession(context: Context) : LiveSession {
             if (offered || !current()) return
             offered = true
             main.removeCallbacks(gatherTimeout)
-            val sdp = pc.localDescription?.description ?: return fail("Could not start WebRTC: no offer")
+            var sdp = pc.localDescription?.description ?: return fail("Could not start WebRTC: no offer")
+            if (blockWebRTC) sdp = withoutCandidates(sdp)
             val (w, h) = opened
             val req = Request.Builder().url(client.url("stream"))
                 .post(openRequest(sdp, w, h, quality).toRequestBody("application/json".toMediaType()))
@@ -366,7 +408,7 @@ class StreamSession(context: Context) : LiveSession {
                             answer == null -> fail("Invalid live desktop answer from mobd")
                             answer.answer == null -> {
                                 session = answer.session
-                                fail("mobd answered without WebRTC; update mobd on the office Mac")
+                                startWs(false)
                             }
                             else -> accept(answer)
                         }
@@ -379,10 +421,77 @@ class StreamSession(context: Context) : LiveSession {
             session = answer.session
             addresses = candidateAddresses(answer.answer.orEmpty())
             Log.add("live view: answered in ${ms()} ms, ${answer.width}×${answer.height}")
+            main.postDelayed(grace, if (preferWebSocket) REMEMBERED_GRACE_MS else WEBRTC_GRACE_MS)
+            val sdp = if (blockWebRTC) withoutCandidates(answer.answer.orEmpty()) else answer.answer
             pc.setRemoteDescription(object : Sdp() {
                 override fun onSetSuccess() {}
                 override fun onSetFailure(error: String) = post { fail("mobd's answer was refused: $error") }
-            }, SessionDescription(SessionDescription.Type.ANSWER, answer.answer))
+            }, SessionDescription(SessionDescription.Type.ANSWER, sdp))
+        }
+
+        /**
+         * Opens the session's WebSocket. [race]: WebRTC keeps trying beside it; otherwise it is closed
+         * and mobd keeps the session for the WebSocket.
+         */
+        fun startWs(race: Boolean) {
+            val id = session
+            if (!current() || via != null || player != null || id == null) return
+            Log.add(if (race) "live view: WebSocket beside WebRTC after ${ms()} ms (needed here last time)" else "live view: no WebRTC after ${ms()} ms, using the WebSocket")
+            if (!race) dropWebRTC()
+            val url = client.baseUrl.newBuilder().addPathSegments("stream/ws").addQueryParameter("session", id).build().toString()
+            nudge() // decoders that hold the first picture need a second keyframe on an idle desktop
+            player = WsPlayer(client.okHttpClient, url, egl.eglBaseContext, { sinks }, object : WsPlayer.Events {
+                override fun control(text: String) {
+                    val m = parseControl(text) ?: return
+                    post { if (via == WEBSOCKET) onControl(m) }
+                }
+                override fun frame(width: Int, height: Int) = post {
+                    if (via == null) choose(WEBSOCKET)
+                    if (via == WEBSOCKET) onFrame(width, height)
+                }
+                override fun close(code: Int, opened: Boolean) = post {
+                    if (via == WEBRTC) return@post
+                    Log.add("live view: WebSocket closed (code $code, ${if (opened) "opened" else "refused"})")
+                    player = null
+                    when {
+                        // Still racing: WebRTC may yet connect.
+                        !opened -> if (!pcOpen) fail("The office Mac could not be reached over WebRTC or the WebSocket fallback")
+                        code == 1000 -> {
+                            fail("Disconnected")
+                            _state.value = VncState(VncStatus.Idle, "Disconnected")
+                        }
+                        else -> fail("The live view connection was lost")
+                    }
+                }
+            })
+        }
+
+        /** The first transport to deliver a picture carries the session; the other is closed. */
+        fun choose(t: String) {
+            if (via != null) return
+            via = t
+            main.removeCallbacks(grace)
+            Log.add("live view: $t carries the picture after ${ms()} ms")
+            if (t == WEBRTC) {
+                player?.close()
+                player = null
+            } else {
+                dropWebRTC()
+            }
+            onTransport?.invoke(t)
+        }
+
+        /** Closes the peer connection and its channels, leaving the session to the WebSocket. */
+        fun dropWebRTC() {
+            if (!pcOpen) return
+            pcOpen = false
+            track?.let { t -> sinks.forEach(t::removeSink); t.removeSink(frames) }
+            track = null
+            listOfNotNull(control, input, pointer).forEach { it.unregisterObserver(); it.close(); it.dispose() }
+            control = null
+            input = null
+            pointer = null
+            pc.close()
         }
 
         fun onTrack(t: VideoTrack) {
@@ -409,7 +518,10 @@ class StreamSession(context: Context) : LiveSession {
 
         fun onControl(m: Control) {
             when (m) {
-                is Control.Stats -> _stats.value = _stats.value.copy(kbps = m.kbps, loss = m.loss)
+                is Control.Stats -> {
+                    lastRtt = m.rttMs.takeIf { it > 0 }
+                    _stats.value = _stats.value.copy(kbps = m.kbps, loss = m.loss)
+                }
                 is Control.Ended -> fail(m.message)
                 is Control.Error -> Log.add("live view: ${m.about}: ${m.message}")
                 is Control.Cursor -> _cursor.value = m.x to m.y
@@ -417,6 +529,7 @@ class StreamSession(context: Context) : LiveSession {
         }
 
         fun send(channel: DataChannel?, text: String): Boolean {
+            if (via == WEBSOCKET) return player?.let { it.send(text); true } ?: false
             if (channel == null || channel.state() != DataChannel.State.OPEN) return false
             return channel.send(DataChannel.Buffer(ByteBuffer.wrap(text.toByteArray(Charsets.UTF_8)), false))
         }
@@ -448,14 +561,13 @@ class StreamSession(context: Context) : LiveSession {
             main.removeCallbacks(gatherTimeout)
             main.removeCallbacks(statsTick)
             main.removeCallbacks(nudgeTick)
+            main.removeCallbacks(grace)
+            player?.close()
+            player = null
             session?.let(::closeSession)
             track?.let { t -> sinks.forEach(t::removeSink); t.removeSink(frames) }
             track = null
-            listOfNotNull(control, input, pointer).forEach { it.unregisterObserver(); it.close(); it.dispose() }
-            control = null
-            input = null
-            pointer = null
-            pc.close()
+            dropWebRTC()
             pc.dispose()
         }
 
@@ -467,11 +579,18 @@ class StreamSession(context: Context) : LiveSession {
             override fun onConnectionChange(state: PeerConnection.PeerConnectionState) = post {
                 when (state) {
                     PeerConnection.PeerConnectionState.CONNECTED -> {
+                        if (!pcOpen) return@post
                         Log.add("live view: WebRTC connected after ${ms()} ms")
+                        main.removeCallbacks(grace) // the picture follows unless the racing WebSocket won at mobd
                         nudge()
                     }
-                    PeerConnection.PeerConnectionState.FAILED ->
-                        fail(if (_state.value.status == VncStatus.Connected) "The live view connection was lost" else "The office Mac could not be reached over WebRTC")
+                    PeerConnection.PeerConnectionState.FAILED -> when {
+                        !pcOpen -> Unit
+                        via == WEBRTC -> fail("The live view connection was lost")
+                        player != null -> dropWebRTC() // the WebSocket is already trying
+                        session != null -> startWs(false) // no UDP path: don't wait out the head start
+                        else -> fail("The office Mac could not be reached over WebRTC")
+                    }
                     else -> Unit
                 }
             }
@@ -503,7 +622,16 @@ class StreamSession(context: Context) : LiveSession {
     private val egl: EglBase by lazy { shared(appContext).first }
     private val factory: PeerConnectionFactory by lazy { shared(appContext).second }
 
+    private fun withoutCandidates(sdp: String) = sdp.split("\r\n").filterNot { it.startsWith("a=candidate") }.joinToString("\r\n")
+
     companion object {
+        const val WEBRTC = "WebRTC"
+        const val WEBSOCKET = "WebSocket"
+        /** WebRTC's head start: usually well under a second on the LAN or a tailnet, but a relayed path can take a few. */
+        private const val WEBRTC_GRACE_MS = 5000L
+        /** Where the WebSocket was needed last time. Not zero: TCP opens faster than WebRTC, so a race from
+         * the start would keep the machine on the WebSocket even where WebRTC works again. */
+        private const val REMEMBERED_GRACE_MS = 1000L
         private var created: Pair<EglBase, PeerConnectionFactory>? = null
 
         /** One EGL context and factory for the process; libwebrtc initializes once. */

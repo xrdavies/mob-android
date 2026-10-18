@@ -205,6 +205,8 @@ data class Machine(
     val needsPairing: Boolean? = null,
     /** Live desktop quality: auto (default), high or low; null uses mobd's auto profile. */
     val liveQuality: String? = null,
+    /** The live view last needed mobd's WebSocket here (no UDP path): try it sooner next time. */
+    val liveWebSocket: Boolean? = null,
 )
 
 /** The saved machine list, or null when it cannot be read. */

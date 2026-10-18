@@ -175,7 +175,7 @@ data class StatEntry(val type: String, val id: String, val members: Map<String, 
 data class StatsSample(val atMs: Long, val bytes: Double, val frames: Double)
 
 /** What the viewer actually receives, once a second. */
-data class Readout(val kBps: Int, val fps: Int, val network: Network? = null, val rttMs: Int? = null)
+data class Readout(val kBps: Int, val fps: Int, val network: Network? = null, val rttMs: Int? = null, val transport: String = "WebRTC")
 
 private fun Any?.num(): Double? = (this as? Number)?.toDouble()
 
@@ -211,7 +211,7 @@ fun readStats(report: List<StatEntry>, prev: StatsSample?, nowMs: Long, remoteAd
 /** "1408×792 · 30 fps · 380 kB/s · WebRTC · LAN". */
 fun readoutText(width: Int, height: Int, r: Readout?): String {
     val parts = mutableListOf("$width×$height")
-    if (r != null) parts += listOf("${r.fps} fps", "${r.kBps} kB/s", "WebRTC")
+    if (r != null) parts += listOf("${r.fps} fps", "${r.kBps} kB/s", r.transport)
     r?.network?.let { parts += it.label }
     return parts.joinToString(" · ")
 }

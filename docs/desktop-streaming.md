@@ -30,7 +30,7 @@ size per ABI and license notices.
 | A2 | **Done.** `stream/StreamSession.kt` with `io.github.webrtc-sdk:android` 150.7871.01: recvonly H.264 (`DefaultVideoDecoderFactory`, software fallback), non-trickle `POST /stream`, `control`/`input`/`pointer` channels, a TextureView renderer per view; VNC stays for mobd without `stream`; mobd's `ended`/errors shown. While no frame has come out of the decoder, a `keyframe` is requested every 0.7 s (see below) | `StreamProtocolTest`, `LiveStreamTest` (emulator vs office mobd), app on the emulator |
 | A3 | **Done.** Tap = click, long-press = right-click, one-finger drag, two-finger scroll in desktop pixels (or pinch to zoom); keys bar with latched modifiers and the keyboard field; points normalized inside the letterbox; held input released on View and when the app stops | `LiveStreamTest` pointer moves; clicks and typing by hand on a phone |
 | A4 | **Done.** Auto / High / Low in the live view (menu) and Settings, both applying at once and reconnecting with control kept; `resize` with mobd's `streamResize`; readout (size, fps, kB/s, transport, network) with signal bars | `LiveStreamTest`; app on the emulator; throttled link still to do |
-| A5 | WebSocket fallback (MediaCodec) | Funnel address |
+| A5 | **Done.** `stream/WsPlayer.kt`: when WebRTC has not connected after 5 s (or fails sooner), the same session continues on `/stream/ws` (OkHttp, Bearer header, no read timeout, 15 s pings). MediaCodec decodes into a libwebrtc `SurfaceTextureHelper`, so frames reach the same `StreamVideo` renderers as WebRTC; each frame acked; input, control and `resize` as text. Decoders that fail while running are skipped for the process; a held keyframe is fed again to flush software decoders. Machines that needed it remember `liveWebSocket`: next time WebRTC gets 1 s, then the WebSocket races beside it; the first frame decides | `WsPlayerTest`, `LiveStreamTest` (4 cases); Funnel still to do |
 | A6 | Remove `vnc/` code and tests, Mac sign-in fields | build |
 | A7 | Tests: signaling, message encoding, transport choice, migration | `./gradlew testDebugUnitTest` |
 
@@ -67,4 +67,22 @@ libwebrtc per ABI in the APK (uncompressed): arm64-v8a 11.7 MB, armeabi-v7a 6.5 
 x86 12.2 MB; release builds keep the two ARM ABIs.
 
 Not yet: a real phone (clicks, typing, gestures by hand, hardware decoders), a throttled link.
+
+### A5 check (2026-10-19)
+
+`LiveStreamTest` on the emulator against the office mobd (`7a06a64`), two full runs; "blocked" drops
+ICE candidates both ways. Each case also checks pointer moves (via mobd's `cursor`) and `resize`.
+
+| WebRTC | WebSocket remembered | Carried by | First picture |
+| --- | --- | --- | --- |
+| works | no | WebRTC | 2.5 s |
+| works | yes | WebRTC (returns to it) | 2.5–2.6 s |
+| blocked | no | WebSocket after the 5 s head start, 960×540 | 5.5–5.6 s |
+| blocked | yes | WebSocket, racing after 1 s | 2.8–2.9 s |
+
+On the emulator the hardware decoder (`c2.goldfish.h264`) configures, then refuses the parameter sets
+(`queueCSDInputBuffer failed w/ error 14`); the player moves to `c2.android.avc` and remembers that for
+the process. The software decoder holds a picture until more input arrives: feeding the same keyframe
+again (never a delta frame) brought the first picture after the WebSocket opens from ~3.7 s to ~0.5 s.
+Not yet: the real Funnel path, a phone off Wi-Fi, a phone's hardware decoder.
 
