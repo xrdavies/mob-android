@@ -48,7 +48,7 @@ class KeystoreCipher(private val alias: String) : SecretCipher {
 }
 
 /**
- * Device tokens and desktop passwords ("<machineId>.token", "<machineId>.vncPassword"),
+ * Device tokens ("<machineId>.token"),
  * encrypted into their own preferences file. Not backed up: the Keystore key would not restore.
  */
 class SecretStore(private val prefs: SharedPreferences, private val cipher: SecretCipher) {
@@ -87,6 +87,5 @@ class SecretStore(private val prefs: SharedPreferences, private val cipher: Secr
 
     companion object {
         fun token(machineId: String) = "$machineId.token"
-        fun vncPassword(machineId: String) = "$machineId.vncPassword"
     }
 }

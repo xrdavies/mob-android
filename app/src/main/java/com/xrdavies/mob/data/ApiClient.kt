@@ -139,10 +139,6 @@ class ApiClient(baseUrl: String, val token: String?) {
     /** Absolute URL of a stored screenshot or upload. */
     fun artifactUrl(id: String): String = baseUrl.resolve("artifacts/$id").toString()
 
-    /** mobd's VNC relay: ws://host:port/vnc (wss for https). */
-    val vncUrl: String
-        get() = baseUrl.resolve("vnc").toString().replaceFirst("http", "ws")
-
     /** A desktop snapshot from GET /screen, scaled down to [maxWidth]; null on 304 not modified. */
     suspend fun screen(maxWidth: Int, quality: Int = 65, etag: String? = null): Snapshot? = withContext(Dispatchers.IO) {
         val url = baseUrl.newBuilder().addPathSegment("screen")

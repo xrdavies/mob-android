@@ -21,8 +21,10 @@ import com.xrdavies.mob.notify.Notifier
 import com.xrdavies.mob.notify.WatchService
 import com.xrdavies.mob.stream.LiveQuality
 import com.xrdavies.mob.stream.LiveSession
+import com.xrdavies.mob.stream.UPDATE_MOBD
+import com.xrdavies.mob.stream.LiveStatus
 import com.xrdavies.mob.stream.StreamSession
-import com.xrdavies.mob.vnc.VncSession
+import com.xrdavies.mob.stream.LiveKeys
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -67,12 +69,11 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     val showDesktopDrawer: StateFlow<Boolean> = _showDesktopDrawer
 
     /** One live view shared by the thumbnail and the full-screen view. */
-    val vnc = VncSession()
     val stream = StreamSession(appContext)
-    private val _live = MutableStateFlow<LiveSession>(vnc)
-    val live: StateFlow<LiveSession> = _live
+    val live: StateFlow<LiveSession> = MutableStateFlow(stream)
     private var desktopUsers = 0
-    private var desktopFor: Boolean? = null
+    /** The machine the live view was opened for, so a health check does not restart it and a new machine does. */
+    private var liveMachine: String? = null
 
     private var _apiClient: ApiClient = clientFor(activeMachine)
     val apiClient: ApiClient
@@ -118,38 +119,30 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     }
 
     private fun loadMachines(): List<Machine> {
-        val stored = prefs.getString("machines", null)?.let(::decodeMachines)
-        // Before machines existed the app stored one URL and one sign-in.
+        val raw = prefs.getString("machines", null)
+        val stored = raw?.let(::decodeMachines)
+        // Before machines existed the app stored one URL.
         val legacyUrl = prefs.getString("mobdUrl", "").orEmpty()
-        val list = stored ?: if (legacyUrl.isBlank()) emptyList() else listOf(
-            Machine(
-                UUID.randomUUID().toString(), "Office Mac", legacyUrl,
-                prefs.getString("vncUsername", "").orEmpty(), prefs.getString("vncPassword", "").orEmpty(),
-            )
-        )
-        // Passwords used to be saved in plain text; move them to the secret store. Machines
-        // from before pairing have no token and wait for the user to pair them.
-        var changed = stored == null && list.isNotEmpty()
+        val list = stored ?: if (legacyUrl.isBlank()) emptyList() else listOf(Machine(UUID.randomUUID().toString(), "Office Mac", legacyUrl))
+        // VNC is gone: older lists kept a Desktop sign-in (and once a plain-text password); saving
+        // again drops it, and the stored passwords are deleted once.
+        var changed = (stored == null && list.isNotEmpty()) || raw?.contains("\"vnc") == true
+        if (!prefs.getBoolean("vncRemoved", false)) {
+            list.forEach { secrets.delete("${it.id}.vncPassword") }
+            prefs.edit().remove("vncUsername").remove("vncPassword").putBoolean("vncRemoved", true).apply()
+        }
+        // Machines from before pairing have no token and wait for the user to pair them.
         val migrated = list.map { m ->
-            var out = m
-            val password = m.vncPassword
-            if (password != null && (password.isEmpty() || secrets.set(SecretStore.vncPassword(m.id), password))) {
-                out = out.copy(vncPassword = null)
+            if (m.needsPairing != true && secrets.get(SecretStore.token(m.id)) == null) {
                 changed = true
-            }
-            if (out.needsPairing != true && secrets.get(SecretStore.token(m.id)) == null) {
-                out = out.copy(needsPairing = true)
-                changed = true
-            }
-            out
+                m.copy(needsPairing = true)
+            } else m
         }
         if (changed) saveMachines(migrated)
-        if (prefs.contains("vncPassword") && migrated.none { it.vncPassword != null }) prefs.edit().remove("vncPassword").apply()
         return migrated
     }
 
     private fun saveMachines(list: List<Machine>) {
-        // A password that could not be moved to the secret store stays until the next try.
         prefs.edit().putString("machines", gson.toJson(list)).apply()
     }
 
@@ -160,8 +153,6 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
 
     /** A client for [m] that signs requests with its token; never another machine's. */
     private fun clientFor(m: Machine?): ApiClient = ApiClient(m?.mobdUrl.orEmpty(), m?.let(::token))
-
-    fun vncPassword(m: Machine): String = secrets.get(SecretStore.vncPassword(m.id)) ?: m.vncPassword.orEmpty()
 
     /** Points the API client, chats, health and live view at the active machine. */
     private fun activate() {
@@ -181,7 +172,7 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
                 delay(30_000)
             }
         }
-        if (desktopUsers > 0 && ok) connectDesktop() else { vnc.disconnect(); stream.disconnect() }
+        if (desktopUsers > 0 && ok) connectDesktop() else stream.disconnect()
     }
 
     fun selectMachine(id: String) {
@@ -190,12 +181,8 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
         activate()
     }
 
-    /** Adds or updates a machine; returns its ID. A non-null [vncPassword] replaces the stored one. */
-    fun saveMachine(m: Machine, vncPassword: String? = null): String {
-        if (vncPassword != null) {
-            if (vncPassword.isEmpty()) secrets.delete(SecretStore.vncPassword(m.id))
-            else secrets.set(SecretStore.vncPassword(m.id), vncPassword)
-        }
+    /** Adds or updates a machine; returns its ID. */
+    fun saveMachine(m: Machine): String {
         val list = _machines.value
         val updated = if (list.any { it.id == m.id }) list.map { if (it.id == m.id) m else it } else list + m
         _machines.value = updated
@@ -214,7 +201,6 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
         setWaiting(id) { emptySet() }
         saveMachines(updated)
         secrets.delete(SecretStore.token(id))
-        secrets.delete(SecretStore.vncPassword(id))
         prefs.edit().remove("session.$id").apply()
         if (id == _activeMachineId.value) {
             _activeMachineId.value = updated.firstOrNull()?.id
@@ -399,40 +385,29 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     }
 
     fun releaseDesktop() {
-        if (--desktopUsers == 0) { vnc.disconnect(); stream.disconnect() }
+        if (--desktopUsers == 0) stream.disconnect()
     }
 
     fun disconnectDesktop() {
-        vnc.disconnect()
         stream.disconnect()
-        desktopFor = null
+        liveMachine = null
     }
 
-    /** Connects the live view over WebRTC when mobd has `stream`, VNC otherwise; a session already up on that transport is kept. */
+    /** Connects the live view (mobd's stream); a session already up for this machine is kept. */
     fun connectDesktop() {
         val m = activeMachine?.takeIf(::usable) ?: return
-        val h = _health.value
-        val useStream = h?.supports("stream") == true
-        val active = (if (useStream) stream else vnc).state.value.status
+        val h = _health.value ?: return // connects when health arrives
+        if (!h.supports("stream")) return stream.unavailable(UPDATE_MOBD)
+        val active = stream.state.value.status
         // Health checks call this too: they must not restart a working session. After an error, reconnect.
-        if (desktopFor == useStream && (active == com.xrdavies.mob.vnc.VncStatus.Connecting || active == com.xrdavies.mob.vnc.VncStatus.Connected)) return
-        desktopFor = useStream
-        vnc.disconnect()
-        stream.disconnect()
-        if (useStream) {
-            _live.value = stream
-            val screen = appContext.resources.displayMetrics.let { it.widthPixels to it.heightPixels }
-            // Remember which transport carried the picture, so the next connect races the WebSocket sooner.
-            stream.onTransport = { t -> rememberTransport(m.id, t) }
-            stream.connect(_apiClient, LiveQuality.of(m.liveQuality), h?.supports("streamResize") == true, screen,
-                preferWebSocket = m.liveWebSocket == true) {
-                markNeedsPairing(m.id, _apiClient.token)
-            }
-        } else {
-            _live.value = vnc
-            vnc.connect(_apiClient.okHttpClient, _apiClient.vncUrl, m.vncUsername, vncPassword(m)) {
-                markNeedsPairing(m.id, _apiClient.token)
-            }
+        if (liveMachine == m.id && (active == LiveStatus.Connecting || active == LiveStatus.Connected)) return
+        liveMachine = m.id
+        val screen = appContext.resources.displayMetrics.let { it.widthPixels to it.heightPixels }
+        // Remember which transport carried the picture, so the next connect races the WebSocket sooner.
+        stream.onTransport = { t -> rememberTransport(m.id, t) }
+        stream.connect(_apiClient, LiveQuality.of(m.liveQuality), h.supports("streamResize"), screen,
+            preferWebSocket = m.liveWebSocket == true) {
+            markNeedsPairing(m.id, _apiClient.token)
         }
     }
 
@@ -452,10 +427,13 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
         try {
             val h = client.api.getHealth()
             if (client !== _apiClient) return
+            val first = _health.value == null
             _health.value = h
             if (!_isConnected.value) Log.add("${activeMachine?.name}: connected, runners ${h.runners.orEmpty().joinToString { it.name }}")
             _isConnected.value = h.ok
             _healthError.value = null
+            // The live view waits for health to know whether mobd streams.
+            if (first && desktopUsers > 0) connectDesktop()
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {

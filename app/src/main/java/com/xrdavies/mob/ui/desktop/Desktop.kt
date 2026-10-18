@@ -70,8 +70,8 @@ import com.xrdavies.mob.stream.devicePixels
 import com.xrdavies.mob.stream.readoutText
 import com.xrdavies.mob.stream.signalBars
 import com.xrdavies.mob.viewmodel.AppState
-import com.xrdavies.mob.vnc.VncSession
-import com.xrdavies.mob.vnc.VncStatus
+import com.xrdavies.mob.stream.LiveKeys
+import com.xrdavies.mob.stream.LiveStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -143,7 +143,7 @@ fun LiveViewDialog(appState: AppState) {
 private fun LiveView(appState: AppState) {
     val live by appState.live.collectAsState()
     val state by live.state.collectAsState()
-    val liveConnected = state.status == VncStatus.Connected
+    val liveConnected = state.status == LiveStatus.Connected
     val control = state.control
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
@@ -163,10 +163,10 @@ private fun LiveView(appState: AppState) {
                 IconButton(onClick = appState::closeLiveView) { Icon(Icons.Filled.Close, "Close", tint = Color.White) }
                 StatusChip(appState)
                 Spacer(Modifier.weight(1f))
-                if (live is StreamSession) QualityMenu(appState)
+                QualityMenu(appState)
                 if (liveConnected) {
                     ModeSwitch(control) { live.setControl(it) }
-                } else if (state.status != VncStatus.Connecting) {
+                } else if (state.status != LiveStatus.Connecting) {
                     TextButton(onClick = appState::connectDesktop) { Text("Reconnect", color = Color.White) }
                 }
             }
@@ -222,7 +222,7 @@ private fun LiveView(appState: AppState) {
                 }
             }
 
-            (live as? StreamSession)?.let { if (liveConnected) Readout(it, state.width, state.height) }
+            if (liveConnected) Readout(appState.stream, state.width, state.height)
 
             if (control) KeysBar(live) {
                 keyboardFocus.requestFocus()
@@ -233,7 +233,7 @@ private fun LiveView(appState: AppState) {
                 when {
                     control -> "Tap = click · long-press = right-click · drag · two fingers: scroll or pinch to zoom"
                     liveConnected -> "View only · pinch to zoom · switch to Control to use the Mac"
-                    state.status == VncStatus.Connecting -> "View only · connecting the live view…"
+                    state.status == LiveStatus.Connecting -> "View only · connecting the live view…"
                     else -> "View only snapshot · " + state.detail.ifBlank { "live view not connected" }
                 },
                 color = Color.White.copy(alpha = 0.6f),
@@ -245,13 +245,12 @@ private fun LiveView(appState: AppState) {
     }
 }
 
-/** Live frames when the live view is up (WebRTC video or VNC), otherwise /screen snapshots. */
+/** Live frames when the live view is up (WebRTC or the WebSocket), otherwise /screen snapshots. */
 @Composable
 private fun DesktopCanvas(appState: AppState, modifier: Modifier) {
     val live by appState.live.collectAsState()
     val state by live.state.collectAsState()
-    val frame by appState.vnc.frame.collectAsState()
-    val liveConnected = state.status == VncStatus.Connected
+    val liveConnected = state.status == LiveStatus.Connected
     var snapshot by remember { mutableStateOf<Bitmap?>(null) }
     var snapshotEtag by remember { mutableStateOf<String?>(null) }
     var snapshotError by remember { mutableStateOf<String?>(null) }
@@ -301,13 +300,13 @@ private fun DesktopCanvas(appState: AppState, modifier: Modifier) {
     }
 
     Box(modifier.background(Color.Black).onSizeChanged { viewWidth = it.width }, contentAlignment = Alignment.Center) {
-        // WebRTC: the video fills a box of the stream's aspect ratio, centred like the bitmaps below.
-        if (liveConnected && live is StreamSession && state.width > 0 && state.height > 0) {
-            StreamVideo(live as StreamSession, Modifier.aspectRatio(state.width.toFloat() / state.height))
+        // The live video (WebRTC or the WebSocket) fills a box of the stream's aspect ratio, centred like the snapshot below.
+        if (liveConnected && state.width > 0 && state.height > 0) {
+            StreamVideo(appState.stream, Modifier.aspectRatio(state.width.toFloat() / state.height))
         }
         Canvas(Modifier.fillMaxSize()) {
-            frame // redraw on every update
-            val bmp = (if (liveConnected && live is com.xrdavies.mob.vnc.VncSession) appState.vnc.bitmap else snapshot) ?: return@Canvas
+            // While live, the video above shows the desktop; otherwise the last snapshot.
+            val bmp = (if (liveConnected) null else snapshot) ?: return@Canvas
             val s = min(size.width / bmp.width, size.height / bmp.height)
             val w = (bmp.width * s).roundToInt()
             val h = (bmp.height * s).roundToInt()
@@ -328,7 +327,7 @@ private fun DesktopCanvas(appState: AppState, modifier: Modifier) {
         }
         if (!liveConnected && snapshot == null) {
             val text = when (state.status) {
-                VncStatus.Connecting -> "Connecting…"
+                LiveStatus.Connecting -> "Connecting…"
                 else -> listOfNotNull(state.detail.takeIf { it.isNotBlank() }, snapshotError?.let { "Snapshot: $it" })
                     .joinToString("\n").ifBlank { "Office desktop is not connected" }
             }
@@ -360,8 +359,8 @@ private fun StatusChip(appState: AppState, modifier: Modifier = Modifier) {
     val live by appState.live.collectAsState()
     val state by live.state.collectAsState()
     val (color, label) = when (state.status) {
-        VncStatus.Connected -> Live to (if (state.control) "Controlling" else "Live")
-        VncStatus.Connecting -> Waiting to "Connecting"
+        LiveStatus.Connected -> Live to (if (state.control) "Controlling" else "Live")
+        LiveStatus.Connecting -> Waiting to "Connecting"
         else -> Muted to "Snapshot"
     }
     Row(
@@ -465,7 +464,7 @@ internal fun toDesktop(p: Offset, size: IntSize, fw: Int, fh: Int, scale: Float,
  * two fingers = scroll wheel, or zoom the view when they pinch.
  */
 private fun Modifier.controlGestures(
-    vnc: LiveSession,
+    session: LiveSession,
     fw: Int,
     fh: Int,
     view: () -> Pair<Float, Offset>,
@@ -491,7 +490,7 @@ private fun Modifier.controlGestures(
                 if (event == null) {
                     // Held still: right-click, then wait for the finger to lift.
                     last = remote(down.position)
-                    vnc.click(last.x, last.y, VncSession.BUTTON_RIGHT)
+                    session.click(last.x, last.y, LiveKeys.BUTTON_RIGHT)
                     onTouch(last)
                     mode = Gesture.Done
                     continue
@@ -510,12 +509,12 @@ private fun Modifier.controlGestures(
                     }
                     when (mode) {
                         Gesture.Zoom -> onZoom(zoom, pan, size)
-                        Gesture.Scroll -> if (vnc.pixelScroll) {
+                        Gesture.Scroll -> if (session.pixelScroll) {
                             // mobd scrolls by desktop pixels: the fingers' travel, through the zoom.
                             val (scale, _) = view()
                             val s = min(size.width.toFloat() / fw, size.height.toFloat() / fh) * scale
                             val at = remote(event.calculateCentroid())
-                            vnc.scrollPixels(at.x, at.y, -pan.x / s, -pan.y / s)
+                            session.scrollPixels(at.x, at.y, -pan.x / s, -pan.y / s)
                         } else {
                             // Natural scrolling: fingers moving up scroll the page down.
                             wheel -= pan
@@ -523,7 +522,7 @@ private fun Modifier.controlGestures(
                             val dy = (wheel.y / step).toInt()
                             if (dx != 0 || dy != 0) {
                                 val at = remote(event.calculateCentroid())
-                                vnc.scroll(at.x, at.y, dx, dy)
+                                session.scroll(at.x, at.y, dx, dy)
                                 wheel -= Offset(dx * step, dy * step)
                             }
                         }
@@ -536,12 +535,12 @@ private fun Modifier.controlGestures(
                 if (mode == Gesture.Undecided && (change.position - down.position).getDistance() > slop) {
                     mode = Gesture.Drag
                     val start = remote(down.position)
-                    vnc.pointer(start.x, start.y, 0)
-                    vnc.pointer(start.x, start.y, VncSession.BUTTON_LEFT)
+                    session.pointer(start.x, start.y, 0)
+                    session.pointer(start.x, start.y, LiveKeys.BUTTON_LEFT)
                 }
                 if (mode == Gesture.Drag) {
                     last = remote(change.position)
-                    vnc.pointer(last.x, last.y, VncSession.BUTTON_LEFT)
+                    session.pointer(last.x, last.y, LiveKeys.BUTTON_LEFT)
                     onTouch(last)
                     change.consume()
                 }
@@ -549,10 +548,10 @@ private fun Modifier.controlGestures(
             when (mode) {
                 Gesture.Undecided -> {
                     last = remote(down.position)
-                    vnc.click(last.x, last.y)
+                    session.click(last.x, last.y)
                     onTouch(last)
                 }
-                Gesture.Drag -> vnc.pointer(last.x, last.y, 0)
+                Gesture.Drag -> session.pointer(last.x, last.y, 0)
                 else -> Unit
             }
         }
@@ -576,8 +575,8 @@ private fun TouchMarker(at: IntOffset, fw: Int, fh: Int, scale: Float) {
 
 /** Keys the phone keyboard lacks: modifiers (latched for the next key), Esc, Tab, arrows, paste. */
 @Composable
-private fun KeysBar(vnc: LiveSession, onKeyboard: () -> Unit) {
-    val mods by vnc.modifiers.collectAsState()
+private fun KeysBar(session: LiveSession, onKeyboard: () -> Unit) {
+    val mods by session.modifiers.collectAsState()
     val clipboard = LocalClipboardManager.current
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 4.dp),
@@ -599,18 +598,18 @@ private fun KeysBar(vnc: LiveSession, onKeyboard: () -> Unit) {
         }
         IconButton(onClick = onKeyboard, modifier = Modifier.size(36.dp)) { Icon(Icons.Filled.Keyboard, "Keyboard", tint = Color.White) }
         listOf(
-            "⌘" to VncSession.XK_META_L, "⌥" to VncSession.XK_ALT_L,
-            "⌃" to VncSession.XK_CONTROL_L, "⇧" to VncSession.XK_SHIFT_L,
-        ).forEach { (label, sym) -> Key(label, "Hold $label for the next key", sym in mods) { vnc.toggleModifier(sym) } }
-        Key("esc", "Escape") { vnc.tapKey(VncSession.XK_ESCAPE) }
-        Key("tab", "Tab") { vnc.tapKey(VncSession.XK_TAB) }
-        Key("←", "Left") { vnc.tapKey(VncSession.XK_LEFT) }
-        Key("↑", "Up") { vnc.tapKey(VncSession.XK_UP) }
-        Key("↓", "Down") { vnc.tapKey(VncSession.XK_DOWN) }
-        Key("→", "Right") { vnc.tapKey(VncSession.XK_RIGHT) }
-        Key("⌫", "Delete") { vnc.tapKey(VncSession.XK_BACKSPACE) }
-        Key("⏎", "Return") { vnc.tapKey(VncSession.XK_RETURN) }
-        Key("Paste", "Type the phone's clipboard") { clipboard.getText()?.text?.let(vnc::typeText) }
+            "⌘" to LiveKeys.XK_META_L, "⌥" to LiveKeys.XK_ALT_L,
+            "⌃" to LiveKeys.XK_CONTROL_L, "⇧" to LiveKeys.XK_SHIFT_L,
+        ).forEach { (label, sym) -> Key(label, "Hold $label for the next key", sym in mods) { session.toggleModifier(sym) } }
+        Key("esc", "Escape") { session.tapKey(LiveKeys.XK_ESCAPE) }
+        Key("tab", "Tab") { session.tapKey(LiveKeys.XK_TAB) }
+        Key("←", "Left") { session.tapKey(LiveKeys.XK_LEFT) }
+        Key("↑", "Up") { session.tapKey(LiveKeys.XK_UP) }
+        Key("↓", "Down") { session.tapKey(LiveKeys.XK_DOWN) }
+        Key("→", "Right") { session.tapKey(LiveKeys.XK_RIGHT) }
+        Key("⌫", "Delete") { session.tapKey(LiveKeys.XK_BACKSPACE) }
+        Key("⏎", "Return") { session.tapKey(LiveKeys.XK_RETURN) }
+        Key("Paste", "Type the phone's clipboard") { clipboard.getText()?.text?.let(session::typeText) }
     }
 }
 
@@ -619,7 +618,7 @@ private fun KeysBar(vnc: LiveSession, onKeyboard: () -> Unit) {
  * backspace on an "empty" field is still seen; typed text is forwarded and cleared.
  */
 @Composable
-private fun KeyboardSink(vnc: LiveSession, focus: FocusRequester) {
+private fun KeyboardSink(session: LiveSession, focus: FocusRequester) {
     val blank = TextFieldValue(" ", TextRange(1))
     var value by remember { mutableStateOf(blank) }
     BasicTextField(
@@ -628,14 +627,14 @@ private fun KeyboardSink(vnc: LiveSession, focus: FocusRequester) {
             val old = value.text
             val new = v.text
             when {
-                new.length < old.length -> repeat(old.length - new.length) { vnc.tapKey(VncSession.XK_BACKSPACE) }
-                new.startsWith(old) -> new.substring(old.length).forEach(vnc::type)
+                new.length < old.length -> repeat(old.length - new.length) { session.tapKey(LiveKeys.XK_BACKSPACE) }
+                new.startsWith(old) -> new.substring(old.length).forEach(session::type)
             }
             value = blank
         },
         singleLine = true,
         keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Send),
-        keyboardActions = KeyboardActions(onSend = { vnc.tapKey(VncSession.XK_RETURN) }),
+        keyboardActions = KeyboardActions(onSend = { session.tapKey(LiveKeys.XK_RETURN) }),
         // Surface forces full-size children; without wrapContentSize this invisible field covers
         // the screen and swallows every touch meant for the desktop.
         modifier = Modifier.wrapContentSize(Alignment.TopStart).size(1.dp).alpha(0f).focusRequester(focus),

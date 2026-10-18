@@ -70,7 +70,7 @@ fun SettingsScreen(appState: AppState) {
                         Column(Modifier.weight(1f)) {
                             Text(m.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(
-                                m.mobdUrl + if (m.vncUsername.isNotBlank()) " · sign-in as ${m.vncUsername}" else "",
+                                m.mobdUrl,
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis,
                             )
@@ -109,9 +109,8 @@ fun SettingsScreen(appState: AppState) {
     editing?.let { m ->
         MachineDialog(
             initial = m,
-            initialPassword = remember(m.id) { appState.vncPassword(m) },
-            onSave = { updated, password ->
-                appState.saveMachine(updated, password)
+            onSave = { updated ->
+                appState.saveMachine(updated)
                 editing = null
             },
             onPairAgain = {
@@ -235,15 +234,12 @@ private fun NotificationsCard(appState: AppState) {
 @Composable
 private fun MachineDialog(
     initial: Machine,
-    initialPassword: String,
-    onSave: (Machine, password: String) -> Unit,
+    onSave: (Machine) -> Unit,
     onPairAgain: () -> Unit,
     onQuality: (LiveQuality) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var name by remember { mutableStateOf(initial.name) }
-    var user by remember { mutableStateOf(initial.vncUsername) }
-    var password by remember { mutableStateOf(initialPassword) }
     var quality by remember { mutableStateOf(LiveQuality.of(initial.liveQuality)) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -271,22 +267,11 @@ private fun MachineDialog(
                     }
                 }
                 Text(quality.hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("Desktop sign-in (optional)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                OutlinedTextField(user, { user = it }, label = { Text("Mac user name") }, supportingText = { Text("Leave empty to use a Screen Sharing (VNC) password") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(
-                    password, { password = it }, label = { Text("Mac or VNC password") }, singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), modifier = Modifier.fillMaxWidth(),
-                )
-                Text(
-                    "With a user name the live view signs in as that user, like Screen Sharing.app. A VNC password alone opens the login window. Stored on this phone only; without either the desktop shows snapshots.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         },
         confirmButton = {
             TextButton(onClick = {
-                onSave(initial.copy(name = name.trim().ifBlank { "Office Mac" }, vncUsername = user.trim(), liveQuality = quality.wire), password)
+                onSave(initial.copy(name = name.trim().ifBlank { "Office Mac" }, liveQuality = quality.wire))
             }) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },

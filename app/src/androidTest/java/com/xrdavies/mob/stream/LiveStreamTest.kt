@@ -3,7 +3,7 @@ package com.xrdavies.mob.stream
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.xrdavies.mob.data.ApiClient
-import com.xrdavies.mob.vnc.VncStatus
+import com.xrdavies.mob.stream.LiveStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -57,8 +57,8 @@ class LiveStreamTest {
         }
         val started = System.currentTimeMillis()
         main { s.connect(ApiClient(url!!, token), LiveQuality.Auto, canResize = true, screen = 1280 to 832, preferWebSocket = remembered) }
-        waitFor("first picture", 15) { s.state.value.status != VncStatus.Connecting }
-        assertEquals(s.state.value.detail, VncStatus.Connected, s.state.value.status)
+        waitFor("first picture", 15) { s.state.value.status != LiveStatus.Connecting }
+        assertEquals(s.state.value.detail, LiveStatus.Connected, s.state.value.status)
         assertEquals(expect, main { won })
         val first = System.currentTimeMillis() - started
         val opened = main { s.state.value.width to s.state.value.height }

@@ -6,9 +6,9 @@ import android.os.Looper
 import com.xrdavies.mob.data.ApiClient
 import com.xrdavies.mob.data.isUnauthorized
 import com.xrdavies.mob.viewmodel.Log
-import com.xrdavies.mob.vnc.VncSession
-import com.xrdavies.mob.vnc.VncState
-import com.xrdavies.mob.vnc.VncStatus
+import com.xrdavies.mob.stream.LiveKeys
+import com.xrdavies.mob.stream.LiveState
+import com.xrdavies.mob.stream.LiveStatus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import okhttp3.Call
@@ -50,8 +50,8 @@ data class StreamStats(val readout: Readout? = null, val kbps: Int = 0, val loss
  */
 class StreamSession(context: Context) : LiveSession {
     private val appContext = context.applicationContext
-    private val _state = MutableStateFlow(VncState())
-    override val state: StateFlow<VncState> = _state
+    private val _state = MutableStateFlow(LiveState())
+    override val state: StateFlow<LiveState> = _state
 
     private val _stats = MutableStateFlow(StreamStats())
     val stats: StateFlow<StreamStats> = _stats
@@ -92,11 +92,17 @@ class StreamSession(context: Context) : LiveSession {
         this.canResize = canResize
         fallbackSize = screen
         val n = ++attempt
-        _state.value = VncState(VncStatus.Connecting, "Connecting…")
+        _state.value = LiveState(LiveStatus.Connecting, "Connecting…")
         _stats.value = StreamStats()
         opened = target()
         Log.add("live view: WebRTC to ${client.baseUrl} at ${opened.first}×${opened.second} (${quality.wire})")
         conn = Conn(n, client, quality, control, preferWebSocket, onUnauthorized).also { it.start() }
+    }
+
+    /** The live view cannot start here (mobd without the `stream` feature); says why. */
+    fun unavailable(message: String) {
+        disconnect()
+        _state.value = LiveState(LiveStatus.Error, message)
     }
 
     override fun disconnect() {
@@ -106,7 +112,7 @@ class StreamSession(context: Context) : LiveSession {
         conn = null
         c.close()
         _modifiers.value = emptySet()
-        _state.value = VncState(VncStatus.Idle, "Disconnected")
+        _state.value = LiveState(LiveStatus.Idle, "Disconnected")
         _stats.value = StreamStats()
     }
 
@@ -135,7 +141,7 @@ class StreamSession(context: Context) : LiveSession {
     /** Fits the running stream to the views: a resize message, or a reconnect for older mobd. */
     private fun refit() {
         val c = conn ?: return
-        if (_state.value.status != VncStatus.Connected) return
+        if (_state.value.status != LiveStatus.Connected) return
         val want = target()
         if (want == opened) return
         if (canResize && c.send(c.control, resizeMessage(want.first, want.second))) {
@@ -147,7 +153,7 @@ class StreamSession(context: Context) : LiveSession {
     }
 
     override fun setControl(on: Boolean) {
-        val control = on && _state.value.status == VncStatus.Connected
+        val control = on && _state.value.status == LiveStatus.Connected
         if (!control) release()
         _state.value = _state.value.copy(control = control)
     }
@@ -178,7 +184,7 @@ class StreamSession(context: Context) : LiveSession {
             c.send(c.pointer, moveMessage(nx, ny))
             return
         }
-        for (bit in listOf(VncSession.BUTTON_LEFT, 2, VncSession.BUTTON_RIGHT)) {
+        for (bit in listOf(LiveKeys.BUTTON_LEFT, 2, LiveKeys.BUTTON_RIGHT)) {
             if (changed and bit == 0) continue
             buttonName(bit)?.let { c.send(c.input, buttonMessage(nx, ny, it, buttons and bit != 0)) }
         }
@@ -230,7 +236,7 @@ class StreamSession(context: Context) : LiveSession {
         val c = conn
         if (c != null && buttons != 0) {
             val (nx, ny) = at(last.first, last.second)
-            for (bit in listOf(VncSession.BUTTON_LEFT, 2, VncSession.BUTTON_RIGHT)) {
+            for (bit in listOf(LiveKeys.BUTTON_LEFT, 2, LiveKeys.BUTTON_RIGHT)) {
                 if (buttons and bit != 0) buttonName(bit)?.let { c.send(c.input, buttonMessage(nx, ny, it, false)) }
             }
         }
@@ -458,7 +464,7 @@ class StreamSession(context: Context) : LiveSession {
                         !opened -> if (!pcOpen) fail("The office Mac could not be reached over WebRTC or the WebSocket fallback")
                         code == 1000 -> {
                             fail("Disconnected")
-                            _state.value = VncState(VncStatus.Idle, "Disconnected")
+                            _state.value = LiveState(LiveStatus.Idle, "Disconnected")
                         }
                         else -> fail("The live view connection was lost")
                     }
@@ -503,10 +509,10 @@ class StreamSession(context: Context) : LiveSession {
         fun onFrame(w: Int, h: Int) {
             lastFrame = System.currentTimeMillis()
             val s = _state.value
-            if (s.status == VncStatus.Connecting) {
+            if (s.status == LiveStatus.Connecting) {
                 main.removeCallbacks(timeout)
                 Log.add("live view: first picture after ${ms()} ms, ${w}×$h")
-                _state.value = s.copy(status = VncStatus.Connected, detail = "", width = w, height = h)
+                _state.value = s.copy(status = LiveStatus.Connected, detail = "", width = w, height = h)
                 main.postDelayed(statsTick, 1000)
                 if (takeControl) setControl(true)
                 main.removeCallbacks(resizeTask)
@@ -541,7 +547,7 @@ class StreamSession(context: Context) : LiveSession {
             conn = null
             close()
             _modifiers.value = emptySet()
-            _state.value = VncState(VncStatus.Error, detail)
+            _state.value = LiveState(LiveStatus.Error, detail)
             _stats.value = StreamStats()
         }
 

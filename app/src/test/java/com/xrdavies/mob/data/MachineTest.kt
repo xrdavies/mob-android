@@ -8,21 +8,26 @@ import org.junit.Test
 
 class MachineTest {
     @Test
-    fun decodesOldList() {
+    fun decodesOldListWithoutDesktopSignIn() {
         val list = decodeMachines("""[{"id":"m1","name":"Office","mobdUrl":"http://h:8080","vncUsername":"me","vncPassword":"pw"}]""")!!
         val m = list.single()
-        assertEquals("me", m.vncUsername)
-        assertEquals("pw", m.vncPassword)
+        assertEquals("Office", m.name)
+        // VNC is gone: saving the list again drops the sign-in.
+        val saved = ApiClient.gson.toJson(list)
+        assertFalse(saved.contains("vnc"))
+        assertFalse(saved.contains("pw"))
         assertNull(m.serverId)
         assertNull(m.clientId)
         assertNull(m.needsPairing)
     }
 
     @Test
-    fun savedListHasNoPassword() {
-        val json = ApiClient.gson.toJson(listOf(Machine("m1", "Office", "http://h", "me", null, "S", "C", true)))
-        assertFalse(json.contains("vncPassword"))
-        assertEquals(true, decodeMachines(json)!!.single().needsPairing)
+    fun pairedMachineRoundTrip() {
+        val json = ApiClient.gson.toJson(listOf(Machine("m1", "Office", "http://h", "S", "C", true, "low", true)))
+        val m = decodeMachines(json)!!.single()
+        assertEquals(true, m.needsPairing)
+        assertEquals("low", m.liveQuality)
+        assertEquals(true, m.liveWebSocket)
     }
 
     @Test

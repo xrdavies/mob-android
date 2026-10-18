@@ -3,7 +3,7 @@ package com.xrdavies.mob.stream
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-import com.xrdavies.mob.vnc.VncSession
+import com.xrdavies.mob.stream.LiveKeys
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
@@ -57,21 +57,21 @@ fun resizeMessage(maxWidth: Int, maxHeight: Int): String =
 /** mobd's text limit per message; longer pastes are split. */
 const val MAX_TEXT = 4096
 
-/** The keys bar's keysyms (shared with the VNC view) as web `KeyboardEvent.code` values. */
+/** The keys bar's keysyms ([LiveKeys].XK_*) as web `KeyboardEvent.code` values. */
 fun keyCode(keysym: Int): String? = when (keysym) {
-    VncSession.XK_BACKSPACE -> "Backspace"
-    VncSession.XK_TAB -> "Tab"
-    VncSession.XK_RETURN -> "Enter"
-    VncSession.XK_ESCAPE -> "Escape"
-    VncSession.XK_DELETE -> "Delete"
-    VncSession.XK_LEFT -> "ArrowLeft"
-    VncSession.XK_UP -> "ArrowUp"
-    VncSession.XK_RIGHT -> "ArrowRight"
-    VncSession.XK_DOWN -> "ArrowDown"
-    VncSession.XK_SHIFT_L -> "ShiftLeft"
-    VncSession.XK_CONTROL_L -> "ControlLeft"
-    VncSession.XK_META_L -> "MetaLeft"
-    VncSession.XK_ALT_L -> "AltLeft"
+    LiveKeys.XK_BACKSPACE -> "Backspace"
+    LiveKeys.XK_TAB -> "Tab"
+    LiveKeys.XK_RETURN -> "Enter"
+    LiveKeys.XK_ESCAPE -> "Escape"
+    LiveKeys.XK_DELETE -> "Delete"
+    LiveKeys.XK_LEFT -> "ArrowLeft"
+    LiveKeys.XK_UP -> "ArrowUp"
+    LiveKeys.XK_RIGHT -> "ArrowRight"
+    LiveKeys.XK_DOWN -> "ArrowDown"
+    LiveKeys.XK_SHIFT_L -> "ShiftLeft"
+    LiveKeys.XK_CONTROL_L -> "ControlLeft"
+    LiveKeys.XK_META_L -> "MetaLeft"
+    LiveKeys.XK_ALT_L -> "AltLeft"
     else -> null
 }
 
@@ -95,11 +95,11 @@ fun shortcutCode(c: Char): String? = when (val l = c.lowercaseChar()) {
     else -> null
 }
 
-/** RFB button bits (VncSession.BUTTON_*) to mobd's button names. */
+/** Button bits ([LiveKeys].BUTTON_*) to mobd's button names. */
 fun buttonName(bit: Int): String? = when (bit) {
-    VncSession.BUTTON_LEFT -> "left"
+    LiveKeys.BUTTON_LEFT -> "left"
     2 -> "middle"
-    VncSession.BUTTON_RIGHT -> "right"
+    LiveKeys.BUTTON_RIGHT -> "right"
     else -> null
 }
 
