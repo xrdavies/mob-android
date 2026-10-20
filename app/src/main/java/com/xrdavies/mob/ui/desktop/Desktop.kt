@@ -16,7 +16,11 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import com.xrdavies.mob.data.DESKTOP_ASLEEP
 import com.xrdavies.mob.data.NEEDS_PAIRING
+import com.xrdavies.mob.data.NO_DESKTOP
+import com.xrdavies.mob.data.NoDesktopException
+import com.xrdavies.mob.data.sessionDesktops
 import com.xrdavies.mob.data.isUnauthorized
 import com.xrdavies.mob.data.latestClick
 import com.xrdavies.mob.data.screenGeometry
@@ -251,10 +255,13 @@ private fun DesktopCanvas(appState: AppState, modifier: Modifier) {
     val live by appState.live.collectAsState()
     val state by live.state.collectAsState()
     val liveConnected = state.status == LiveStatus.Connected
+    val health by appState.health.collectAsState()
+    val sessionId = if (health.sessionDesktops) appState.chat.currentId.value else null
     var snapshot by remember { mutableStateOf<Bitmap?>(null) }
     var snapshotEtag by remember { mutableStateOf<String?>(null) }
     var snapshotError by remember { mutableStateOf<String?>(null) }
     var snapshotAt by remember { mutableStateOf<java.time.LocalTime?>(null) }
+    var snapshotAsleep by remember { mutableStateOf(false) }
     // Snapshots are fetched at the view's width in pixels; a new width starts a new download.
     var viewWidth by remember { mutableIntStateOf(0) }
     val snapshotWidth = if (viewWidth > 0) devicePixels(viewWidth) else 0
@@ -270,7 +277,11 @@ private fun DesktopCanvas(appState: AppState, modifier: Modifier) {
     val machines by appState.machines.collectAsState()
     val activeId by appState.activeMachineId.collectAsState()
     val needsPairing = machines.firstOrNull { it.id == activeId }?.needsPairing == true
-    LaunchedEffect(liveConnected, needsPairing, activeId, snapshotWidth) {
+    LaunchedEffect(liveConnected, needsPairing, activeId, sessionId, snapshotWidth) {
+        // Switching sessions clears the snapshot so it does not flash stale data.
+        snapshot = null
+        snapshotEtag = null
+        snapshotAsleep = false
         if (liveConnected || snapshotWidth == 0) return@LaunchedEffect
         if (needsPairing) {
             snapshotError = NEEDS_PAIRING
@@ -279,15 +290,23 @@ private fun DesktopCanvas(appState: AppState, modifier: Modifier) {
         val client = appState.apiClient
         while (isActive) {
             try {
-                val snap = client.screen(snapshotWidth, 65, snapshotEtag.takeIf { snapshot != null })
+                val snap = client.screen(snapshotWidth, 65, snapshotEtag.takeIf { snapshot != null }, sessionId)
                 if (snap != null) {
                     snapshot = snap.bitmap
                     snapshotEtag = snap.etag
+                    snapshotAsleep = snap.asleep
                 }
                 snapshotAt = java.time.LocalTime.now()
                 snapshotError = null
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: NoDesktopException) {
+                // The conversation has no desktop yet; the error says it, no snapshot.
+                snapshot = null
+                snapshotEtag = null
+                snapshotError = NO_DESKTOP
+                snapshotAsleep = false
+                break
             } catch (e: Exception) {
                 snapshotError = e.message
                 if (e.isUnauthorized()) {
@@ -333,7 +352,15 @@ private fun DesktopCanvas(appState: AppState, modifier: Modifier) {
             }
             Text(text, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(16.dp))
         }
-        if (!liveConnected) SnapshotLabel(snapshotAt.takeIf { snapshot != null }, snapshotError, Modifier.align(Alignment.BottomStart))
+        if (!liveConnected) {
+            SnapshotLabel(snapshotAt.takeIf { snapshot != null }, snapshotError, Modifier.align(Alignment.BottomStart))
+            if (snapshotAsleep && snapshot != null) {
+                Text(
+                    DESKTOP_ASLEEP, color = Color.White, style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.align(Alignment.TopStart).padding(8.dp).background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 3.dp),
+                )
+            }
+        }
     }
 }
 

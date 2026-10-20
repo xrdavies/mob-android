@@ -1,11 +1,13 @@
 package com.xrdavies.mob.viewmodel
 
 import com.xrdavies.mob.data.ApiClient
+import com.xrdavies.mob.data.DesktopEvent
 import com.xrdavies.mob.data.Machine
 import com.xrdavies.mob.data.OPEN
 import com.xrdavies.mob.data.Queue
 import com.xrdavies.mob.data.Session
 import com.xrdavies.mob.data.isUnauthorized
+import com.xrdavies.mob.data.parseDesktopEvent
 import com.xrdavies.mob.data.readable
 import com.xrdavies.mob.data.sse
 import kotlinx.coroutines.CoroutineScope
@@ -27,6 +29,8 @@ interface MachineEvents {
     fun onQueue(m: Machine, queued: Int)
     /** mobd refused [token]; the watcher has stopped. */
     fun onUnauthorized(m: Machine, token: String?)
+    /** A conversation desktop, memory or disk change (Linux mobd with `sessionDesktops`). */
+    fun onDesktopEvent(m: Machine, e: DesktopEvent) {}
 }
 
 /**
@@ -62,6 +66,7 @@ class MachineWatcher(val machine: Machine, val client: ApiClient, scope: Corouti
                         "queue" -> runCatching { ApiClient.gson.fromJson(e.data, Queue::class.java) }.getOrNull()?.let {
                             events.onQueue(machine, it.queued.orEmpty().size)
                         }
+                        "desktop", "memory", "disk" -> parseDesktopEvent(e.type, e.data)?.let { events.onDesktopEvent(machine, it) }
                         "reset" -> {
                             Log.add("${machine.name}: events reset, refetching")
                             seed(client)

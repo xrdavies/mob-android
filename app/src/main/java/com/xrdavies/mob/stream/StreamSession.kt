@@ -87,7 +87,8 @@ class StreamSession(context: Context) : LiveSession {
 
     /** [onUnauthorized] runs on the main thread when mobd refuses the device token. */
     /** [preferWebSocket]: the WebSocket carried this machine's last session; race it after 1 s. */
-    fun connect(client: ApiClient, quality: LiveQuality, canResize: Boolean, screen: Pair<Int, Int>, control: Boolean = false, preferWebSocket: Boolean = false, onUnauthorized: () -> Unit = {}) {
+    /** [sessionId]: the conversation's desktop (servers with `sessionDesktops`), sent on POST /stream. */
+    fun connect(client: ApiClient, quality: LiveQuality, canResize: Boolean, screen: Pair<Int, Int>, control: Boolean = false, preferWebSocket: Boolean = false, sessionId: String? = null, onUnauthorized: () -> Unit = {}) {
         disconnect()
         this.canResize = canResize
         fallbackSize = screen
@@ -96,7 +97,7 @@ class StreamSession(context: Context) : LiveSession {
         _stats.value = StreamStats()
         opened = target()
         Log.add("live view: WebRTC to ${client.baseUrl} at ${opened.first}×${opened.second} (${quality.wire})")
-        conn = Conn(n, client, quality, control, preferWebSocket, onUnauthorized).also { it.start() }
+        conn = Conn(n, client, quality, control, preferWebSocket, sessionId, onUnauthorized).also { it.start() }
     }
 
     /** The live view cannot start here (mobd without the `stream` feature); says why. */
@@ -148,7 +149,7 @@ class StreamSession(context: Context) : LiveSession {
             opened = want
             c.nudge()
         } else {
-            connect(c.client, c.quality, canResize, fallbackSize, _state.value.control, c.via == WEBSOCKET, c.onUnauthorized)
+            connect(c.client, c.quality, canResize, fallbackSize, _state.value.control, c.via == WEBSOCKET, c.sessionId, c.onUnauthorized)
         }
     }
 
@@ -250,6 +251,7 @@ class StreamSession(context: Context) : LiveSession {
         val quality: LiveQuality,
         val takeControl: Boolean,
         val preferWebSocket: Boolean,
+        val sessionId: String?,
         val onUnauthorized: () -> Unit,
     ) {
         /** The transport that won; everything sent goes there. */
@@ -392,7 +394,7 @@ class StreamSession(context: Context) : LiveSession {
             if (blockWebRTC) sdp = withoutCandidates(sdp)
             val (w, h) = opened
             val req = Request.Builder().url(client.url("stream"))
-                .post(openRequest(sdp, w, h, quality).toRequestBody("application/json".toMediaType()))
+                .post(openRequest(sdp, w, h, quality, sessionId).toRequestBody("application/json".toMediaType()))
                 .build()
             client.okHttpClient.newCall(req).enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) = post {
@@ -409,8 +411,7 @@ class StreamSession(context: Context) : LiveSession {
                         val answer = parseAnswer(body)
                         when {
                             !current() -> answer?.let { closeSession(it.session) }
-                            code == 404 || code == 405 -> fail(UPDATE_MOBD)
-                            code !in 200..299 -> fail(errorText(body, code))
+                            code !in 200..299 -> fail(openFailure(code, body, sessionId != null))
                             answer == null -> fail("Invalid live desktop answer from mobd")
                             answer.answer == null -> {
                                 session = answer.session

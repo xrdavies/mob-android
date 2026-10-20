@@ -9,16 +9,20 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DesktopMac
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -26,11 +30,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import com.xrdavies.mob.data.TimelineItem
 import com.xrdavies.mob.data.buildTimeline
+import com.xrdavies.mob.data.byMemory
+import com.xrdavies.mob.data.bytes
+import com.xrdavies.mob.data.resourceWarning
 import com.xrdavies.mob.ui.desktop.DesktopDrawer
 import com.xrdavies.mob.ui.desktop.LiveViewDialog
 import com.xrdavies.mob.ui.settings.NeedsPairingBanner
 import com.xrdavies.mob.ui.settings.PairDialog
 import com.xrdavies.mob.viewmodel.AppState
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -145,6 +153,7 @@ fun ChatScreen(appState: AppState, onOpenDrawer: (() -> Unit)?, onOpenSettings: 
                     if (machine?.needsPairing == true) {
                         NeedsPairingBanner(machine, onPair = { pairing = true }, Modifier.widthIn(max = 840.dp).padding(8.dp))
                     }
+                    ResourceBanner(appState, Modifier.widthIn(max = 840.dp).padding(8.dp))
                     AnimatedVisibility(visible = !side && showDesktop && machine != null) { DesktopDrawer(appState) }
 
                     Box(Modifier.weight(1f).widthIn(max = 840.dp).fillMaxWidth()) {
@@ -189,6 +198,65 @@ private fun EmptyState(title: String, hint: String, action: (@Composable () -> U
         if (action != null) {
             Spacer(Modifier.height(16.dp))
             action()
+        }
+    }
+}
+
+@Composable
+private fun ResourceBanner(appState: AppState, modifier: Modifier = Modifier) {
+    val desktops = appState.desktops
+    if (!desktops.enabled) return
+    val memory by desktops.memory.collectAsState()
+    val disk by desktops.disk.collectAsState()
+    val dismissed by desktops.dismissed.collectAsState()
+    val message by desktops.message.collectAsState()
+    val warning = resourceWarning(memory, disk)
+    if (warning == null || dismissed == warning.key) return
+    var showDesktops by remember { mutableStateOf(false) }
+    LaunchedEffect(message) {
+        message?.let {
+            // A close/seed result arrived; hide the list and let the user see the message.
+            showDesktops = false
+            desktops.clearMessage()
+        }
+    }
+    // Refresh while shown so the list stays current.
+    LaunchedEffect(warning.key) {
+        while (true) {
+            delay(15_000)
+            desktops.refresh()
+        }
+    }
+    Card(modifier, colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF3C7))) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                Icon(Icons.Filled.Warning, null, Modifier.size(20.dp).padding(top = 2.dp), tint = Color(0xFFD97706))
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    warning.lines.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+                }
+                IconButton(onClick = { desktops.dismiss(warning.key) }, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Filled.Close, "Dismiss", Modifier.size(18.dp))
+                }
+            }
+            if (showDesktops) {
+                val list by desktops.desktops.collectAsState()
+                list.byMemory().forEach { d ->
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(Color.White.copy(alpha = 0.5f)).padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(d.title ?: d.sessionId, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(bytes(d.memoryBytes), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        TextButton(onClick = { appState.desktops.close(d.sessionId) }) { Text("Close desktop") }
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                if (!showDesktops) TextButton(onClick = { showDesktops = true }) { Text("Show desktops") }
+            }
         }
     }
 }

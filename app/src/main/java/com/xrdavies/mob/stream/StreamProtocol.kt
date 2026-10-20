@@ -142,8 +142,26 @@ fun parseAnswer(body: String): StreamAnswer? {
 fun errorText(body: String, code: Int): String =
     runCatching { JsonParser().parse(body).asJsonObject.get("error").asString }.getOrNull()?.takeIf { it.isNotBlank() } ?: "HTTP $code"
 
-fun openRequest(offer: String, maxWidth: Int, maxHeight: Int, quality: LiveQuality): String =
-    gson.toJson(mapOf("offer" to offer, "maxWidth" to maxWidth, "maxHeight" to maxHeight, "quality" to quality.wire))
+/** [sessionId]: the conversation whose desktop to show (servers with `sessionDesktops`); omitted otherwise. */
+fun openRequest(offer: String, maxWidth: Int, maxHeight: Int, quality: LiveQuality, sessionId: String? = null): String =
+    gson.toJson(
+        mapOf("offer" to offer, "maxWidth" to maxWidth, "maxHeight" to maxHeight, "quality" to quality.wire) +
+            (sessionId?.let { mapOf("sessionId" to it) } ?: emptyMap())
+    )
+
+/**
+ * Why POST /stream was refused. [perSession]: the server has conversation desktops, so a 404 is an
+ * unknown conversation rather than an old mobd without the live view.
+ */
+fun openFailure(code: Int, body: String, perSession: Boolean): String {
+    val e = com.xrdavies.mob.data.apiError(body, code)
+    return when {
+        e.code == "no_desktop" -> com.xrdavies.mob.data.NO_DESKTOP
+        e.code != null -> e.message
+        !perSession && (code == 404 || code == 405) -> UPDATE_MOBD
+        else -> errorText(body, code)
+    }
+}
 
 enum class Network(val label: String) { LAN("LAN"), Tailscale("Tailscale"), Internet("Internet"), Relay("relay") }
 

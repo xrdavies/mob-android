@@ -61,6 +61,17 @@ interface MobApi {
         @Body request: AnswerQuestionRequest
     ): Response<Unit>
 
+    @GET("desktops")
+    suspend fun listDesktops(): DesktopsResponse
+
+    /** Stops the conversation's running turn, then closes its desktop. */
+    @DELETE("desktops/{sessionId}")
+    suspend fun closeDesktop(@Path("sessionId") sessionId: String): Response<Unit>
+
+    /** Makes the conversation's browser profiles the seed for new conversations. */
+    @POST("desktops/{sessionId}/seed")
+    suspend fun seedDesktop(@Path("sessionId") sessionId: String): Response<Unit>
+
     @Multipart
     @POST("uploads")
     suspend fun upload(@Part file: MultipartBody.Part): Upload
@@ -75,7 +86,8 @@ fun <T> Response<T>.orThrow(): Response<T> {
 
 const val NEEDS_PAIRING = "This device needs to be paired again"
 
-data class Snapshot(val bitmap: Bitmap, val etag: String)
+/** [asleep]: the last frame of a sleeping desktop (`X-Mob-Desktop-State: asleep`), which was not woken. */
+data class Snapshot(val bitmap: Bitmap, val etag: String, val asleep: Boolean = false)
 
 /** An HTTP failure outside Retrofit (event streams, the live view). */
 open class HttpStatusException(val code: Int, message: String) : IOException(message)
@@ -139,23 +151,30 @@ class ApiClient(baseUrl: String, val token: String?) {
     /** Absolute URL of a stored screenshot or upload. */
     fun artifactUrl(id: String): String = baseUrl.resolve("artifacts/$id").toString()
 
-    /** A desktop snapshot from GET /screen, scaled down to [maxWidth]; null on 304 not modified. */
-    suspend fun screen(maxWidth: Int, quality: Int = 65, etag: String? = null): Snapshot? = withContext(Dispatchers.IO) {
-        val url = baseUrl.newBuilder().addPathSegment("screen")
-            .addQueryParameter("maxWidth", maxWidth.toString())
-            .addQueryParameter("quality", quality.toString())
-            .build()
-        val req = Request.Builder().url(url)
+    /** GET /screen; [sessionId] picks the conversation's desktop (servers with `sessionDesktops`). */
+    fun screenUrl(maxWidth: Int, quality: Int, sessionId: String? = null): HttpUrl = baseUrl.newBuilder().addPathSegment("screen")
+        .addQueryParameter("maxWidth", maxWidth.toString())
+        .addQueryParameter("quality", quality.toString())
+        .apply { sessionId?.let { addQueryParameter("sessionId", it) } }
+        .build()
+
+    /**
+     * A desktop snapshot from GET /screen, scaled down to [maxWidth]; null on 304 not modified.
+     * Throws [NoDesktopException] when the conversation [sessionId] has no desktop yet.
+     */
+    suspend fun screen(maxWidth: Int, quality: Int = 65, etag: String? = null, sessionId: String? = null): Snapshot? = withContext(Dispatchers.IO) {
+        val req = Request.Builder().url(screenUrl(maxWidth, quality, sessionId))
         if (etag != null) req.header("If-None-Match", etag)
         okHttpClient.newCall(req.build()).execute().use { r ->
             if (r.code == 304) return@withContext null
             val body = r.body ?: throw IOException("Empty response")
             if (!r.isSuccessful) {
-                val text = body.string()
-                throw IOException(runCatching { JSONObject(text).getString("error") }.getOrDefault("HTTP ${r.code}"))
+                val e = apiError(body.string(), r.code)
+                if (e.code == "no_desktop") throw NoDesktopException()
+                throw IOException(e.message)
             }
             val bm = BitmapFactory.decodeStream(body.byteStream()) ?: throw IOException("Not an image")
-            Snapshot(bm, r.header("ETag").orEmpty())
+            Snapshot(bm, r.header("ETag").orEmpty(), r.header("X-Mob-Desktop-State") == DesktopState.ASLEEP)
         }
     }
 

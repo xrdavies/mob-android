@@ -16,6 +16,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xrdavies.mob.data.Status
 import com.xrdavies.mob.data.Task
+import com.xrdavies.mob.data.queueReasonText
 import com.xrdavies.mob.data.readable
 import com.xrdavies.mob.ui.common.relativeTime
 import com.xrdavies.mob.viewmodel.AppState
@@ -97,6 +98,9 @@ fun TaskCard(task: Task, onClick: () -> Unit) {
                 listOfNotNull(task.runner, task.model, relativeTime(task.createdAt).takeIf { it.isNotEmpty() }).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            queueReasonText(task.queueReason)?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             task.error?.takeIf { task.status == Status.FAILED && it.isNotBlank() }?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }

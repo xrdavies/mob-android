@@ -23,8 +23,12 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.xrdavies.mob.data.CLOSE_DESKTOP_WARNING
+import com.xrdavies.mob.data.DESKTOP_CLOSES
+import com.xrdavies.mob.data.DesktopInfo
 import com.xrdavies.mob.data.Session
 import com.xrdavies.mob.data.Status
+import com.xrdavies.mob.data.sessionDesktops
 import com.xrdavies.mob.ui.common.relativeTime
 import com.xrdavies.mob.viewmodel.AppState
 
@@ -38,9 +42,14 @@ fun SessionDrawer(appState: AppState, onClose: () -> Unit, onManageMachines: () 
     val sessions by chat.sessions.collectAsState()
     val archived by chat.archived.collectAsState()
     val currentId by chat.currentId.collectAsState()
+    val health by appState.health.collectAsState()
+    val perSession = health.sessionDesktops
+    val desktops by appState.desktops.desktops.collectAsState()
     var showArchived by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<Session?>(null) }
     var deleting by remember { mutableStateOf<Session?>(null) }
+    var archiving by remember { mutableStateOf<Session?>(null) }
+    var closingDesktop by remember { mutableStateOf<Pair<Session, DesktopInfo>?>(null) }
     var query by remember { mutableStateOf("") }
     val searching = query.isNotBlank()
     // Search covers archived chats too, so load them once a search starts.
@@ -86,7 +95,12 @@ fun SessionDrawer(appState: AppState, onClose: () -> Unit, onManageMachines: () 
                 val otherMachines = machines.filter { it.id != activeId && it.name.contains(q, ignoreCase = true) }
                 item { SectionLabel(if (found.isEmpty()) "No chats match" else "Chats") }
                 items(found, key = { "f" + it.id }) { s ->
-                    SessionRow(s, s.id == currentId, appState, { renaming = s }, { deleting = s }) {
+                    SessionRow(s, s.id == currentId, desktops[s.id], perSession, appState,
+                        onRename = { renaming = s },
+                        onArchive = { archiving = s },
+                        onDelete = { deleting = s },
+                        onCloseDesktop = { closingDesktop = s to desktops[s.id]!! },
+                    ) {
                         query = ""
                         onClose()
                     }
@@ -111,7 +125,12 @@ fun SessionDrawer(appState: AppState, onClose: () -> Unit, onManageMachines: () 
             if (pinned.isNotEmpty()) {
                 item { SectionLabel("Pinned") }
                 items(pinned, key = { "p" + it.id }) { s ->
-                    SessionRow(s, s.id == currentId, appState, { renaming = s }, { deleting = s }) { onClose() }
+                    SessionRow(s, s.id == currentId, desktops[s.id], perSession, appState,
+                        onRename = { renaming = s },
+                        onArchive = { archiving = s },
+                        onDelete = { deleting = s },
+                        onCloseDesktop = { closingDesktop = s to desktops[s.id]!! },
+                    ) { onClose() }
                 }
             }
             item { SectionLabel("Recent") }
@@ -124,7 +143,12 @@ fun SessionDrawer(appState: AppState, onClose: () -> Unit, onManageMachines: () 
                 }
             }
             items(recent, key = { "r" + it.id }) { s ->
-                SessionRow(s, s.id == currentId, appState, { renaming = s }, { deleting = s }) { onClose() }
+                SessionRow(s, s.id == currentId, desktops[s.id], perSession, appState,
+                    onRename = { renaming = s },
+                    onArchive = { archiving = s },
+                    onDelete = { deleting = s },
+                    onCloseDesktop = { closingDesktop = s to desktops[s.id]!! },
+                ) { onClose() }
             }
             item {
                 Row(
@@ -150,7 +174,12 @@ fun SessionDrawer(appState: AppState, onClose: () -> Unit, onManageMachines: () 
                     )
                 }
                 items(list, key = { "a" + it.id }) { s ->
-                    SessionRow(s, s.id == currentId, appState, { renaming = s }, { deleting = s }) { onClose() }
+                    SessionRow(s, s.id == currentId, desktops[s.id], perSession, appState,
+                        onRename = { renaming = s },
+                        onArchive = { archiving = s },
+                        onDelete = { deleting = s },
+                        onCloseDesktop = { closingDesktop = s to desktops[s.id]!! },
+                    ) { onClose() }
                 }
             }
         }
@@ -173,11 +202,25 @@ fun SessionDrawer(appState: AppState, onClose: () -> Unit, onManageMachines: () 
             dismissButton = { TextButton(onClick = { renaming = null }) { Text("Cancel") } },
         )
     }
+    archiving?.let { s ->
+        AlertDialog(
+            onDismissRequest = { archiving = null },
+            title = { Text("Archive \"${s.displayTitle}\"?") },
+            text = { Text(if (perSession && desktops[s.id]?.open == true) "The chat will move to Archived. $DESKTOP_CLOSES" else "The chat will move to Archived.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    chat.setArchived(s, s.archived != true)
+                    archiving = null
+                }) { Text("Archive") }
+            },
+            dismissButton = { TextButton(onClick = { archiving = null }) { Text("Cancel") } },
+        )
+    }
     deleting?.let { s ->
         AlertDialog(
             onDismissRequest = { deleting = null },
             title = { Text("Delete chat?") },
-            text = { Text("“${s.displayTitle}” and its screenshots are removed from the office Mac. This cannot be undone.") },
+            text = { Text("\"${s.displayTitle}\" and its screenshots are removed from the office Mac." + (if (perSession) " $DESKTOP_CLOSES" else "") + " This cannot be undone.") },
             confirmButton = {
                 TextButton(onClick = {
                     chat.delete(s)
@@ -185,6 +228,20 @@ fun SessionDrawer(appState: AppState, onClose: () -> Unit, onManageMachines: () 
                 }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+        )
+    }
+    closingDesktop?.let { (s, d) ->
+        AlertDialog(
+            onDismissRequest = { closingDesktop = null },
+            title = { Text("Close desktop?") },
+            text = { Text(CLOSE_DESKTOP_WARNING) },
+            confirmButton = {
+                TextButton(onClick = {
+                    appState.desktops.close(s.id)
+                    closingDesktop = null
+                }) { Text("Close desktop", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { closingDesktop = null }) { Text("Cancel") } },
         )
     }
 }
@@ -258,9 +315,13 @@ private fun MachineSwitcher(appState: AppState, onManageMachines: () -> Unit) {
 private fun SessionRow(
     s: Session,
     selected: Boolean,
+    desktop: DesktopInfo?,
+    perSession: Boolean,
     appState: AppState,
     onRename: () -> Unit,
+    onArchive: () -> Unit,
     onDelete: () -> Unit,
+    onCloseDesktop: () -> Unit,
     onOpened: () -> Unit,
 ) {
     val chat = appState.chat
@@ -272,10 +333,18 @@ private fun SessionRow(
                     s.displayTitle, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                 )
-                Text(
-                    listOfNotNull(s.runner, relativeTime(s.updatedAt).takeIf { it.isNotEmpty() }).joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (perSession && desktop?.open == true) {
+                        Icon(
+                            Icons.Filled.DesktopWindows, if (desktop.asleep) "Desktop asleep" else "Desktop running",
+                            Modifier.size(14.dp), tint = if (desktop.asleep) Color(0xFF9CA3AF) else MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Text(
+                        listOfNotNull(s.runner, relativeTime(s.updatedAt).takeIf { it.isNotEmpty() }).joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         },
         icon = { SessionStatusIcon(s) },
@@ -305,9 +374,26 @@ private fun SessionRow(
                         leadingIcon = { Icon(if (s.archived == true) Icons.Outlined.Unarchive else Icons.Outlined.Archive, null) },
                         onClick = {
                             menu = false
-                            chat.setArchived(s, s.archived != true)
+                            if (s.archived == true || !perSession || desktop?.open != true) chat.setArchived(s, s.archived != true) else onArchive()
                         },
                     )
+                    if (perSession && desktop?.open == true) DropdownMenuItem(
+                        text = { Text("Close desktop") },
+                        leadingIcon = { Icon(Icons.Filled.DesktopWindows, null) },
+                        onClick = {
+                            menu = false
+                            onCloseDesktop()
+                        },
+                    )
+                    if (perSession && desktop != null) DropdownMenuItem(
+                        text = { Text("Use this browser profile for new conversations") },
+                        leadingIcon = { Icon(Icons.Filled.ContentCopy, null) },
+                        onClick = {
+                            menu = false
+                            appState.desktops.seed(s.id)
+                        },
+                    )
+                    HorizontalDivider()
                     DropdownMenuItem(
                         text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
                         leadingIcon = { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error) },

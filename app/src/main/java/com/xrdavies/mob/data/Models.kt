@@ -76,6 +76,8 @@ data class Task(
     val usage: Usage?,
     val error: String?,
     val queuePosition: Int?,
+    /** Why a queued turn still waits (slots, desktops, memory, disk, desktopStarting); see [queueReasonText]. */
+    val queueReason: String?,
     /** True while the turn waits for the user to answer a question. */
     val waiting: Boolean?,
 ) {

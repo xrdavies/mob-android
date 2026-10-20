@@ -6,9 +6,12 @@ import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
 import com.xrdavies.mob.data.AnswerQuestionRequest
 import com.xrdavies.mob.data.ApiClient
+import com.xrdavies.mob.data.DesktopEvent
+import com.xrdavies.mob.data.DesktopState
 import com.xrdavies.mob.data.Health
 import com.xrdavies.mob.data.Machine
 import com.xrdavies.mob.data.NEEDS_PAIRING
+import com.xrdavies.mob.data.NO_DESKTOP
 import com.xrdavies.mob.data.PairLink
 import com.xrdavies.mob.data.SecretStore
 import com.xrdavies.mob.data.Session
@@ -17,6 +20,7 @@ import com.xrdavies.mob.data.decodeMachines
 import com.xrdavies.mob.data.isUnauthorized
 import com.xrdavies.mob.data.pair as redeemInvite
 import com.xrdavies.mob.data.readable
+import com.xrdavies.mob.data.sessionDesktops
 import com.xrdavies.mob.notify.Notifier
 import com.xrdavies.mob.notify.WatchService
 import com.xrdavies.mob.stream.LiveQuality
@@ -72,7 +76,10 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     val stream = StreamSession(appContext)
     val live: StateFlow<LiveSession> = MutableStateFlow(stream)
     private var desktopUsers = 0
-    /** The machine the live view was opened for, so a health check does not restart it and a new machine does. */
+    /**
+     * The machine (and, with conversation desktops, the chat) the live view was opened for, so a
+     * health check does not restart it and a new machine or chat does.
+     */
     private var liveMachine: String? = null
 
     private var _apiClient: ApiClient = clientFor(activeMachine)
@@ -80,6 +87,9 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
         get() = _apiClient
 
     val chat = ChatStore(viewModelScope, prefs, ::markNeedsPairing)
+
+    /** Conversation desktops on the active machine; empty unless it has `sessionDesktops`. */
+    val desktops = DesktopStore(viewModelScope, ::markNeedsPairing)
     private var healthJob: Job? = null
 
     val notifier = Notifier(appContext)
@@ -116,6 +126,17 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     init {
         activate()
         syncWatchers()
+        // With conversation desktops the live view follows the open chat.
+        viewModelScope.launch {
+            chat.currentId.collect { if (desktopUsers > 0 && _health.value.sessionDesktops) connectDesktop() }
+        }
+        // A chat whose desktop did not exist yet when the live view opened: connect once it runs.
+        desktops.onChange = { d ->
+            val s = stream.state.value
+            if (desktopUsers > 0 && d.sessionId == chat.currentId.value && d.state == DesktopState.RUNNING &&
+                s.status == LiveStatus.Error && s.detail == NO_DESKTOP
+            ) connectDesktop()
+        }
     }
 
     private fun loadMachines(): List<Machine> {
@@ -165,6 +186,8 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
         _isConnected.value = false
         _healthError.value = if (m != null && !ok) NEEDS_PAIRING else null
         chat.attach(_apiClient, m?.id.orEmpty(), enabled = ok)
+        // Enabled once health says the server has conversation desktops.
+        desktops.attach(_apiClient, m?.id.orEmpty(), enabled = false)
         healthJob?.cancel()
         healthJob = if (!ok) null else viewModelScope.launch {
             while (isActive) {
@@ -344,7 +367,18 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     }
 
     override fun onReset(m: Machine) {
-        if (m.id == _activeMachineId.value) chat.refreshAll()
+        if (m.id != _activeMachineId.value) return
+        chat.refreshAll()
+        desktops.refresh()
+    }
+
+    override fun onDesktopEvent(m: Machine, e: DesktopEvent) {
+        if (m.id != _activeMachineId.value) return
+        when (e) {
+            is DesktopEvent.Desktop -> desktops.applyDesktop(e.info)
+            is DesktopEvent.Memory -> desktops.applyMemory(e.info)
+            is DesktopEvent.Disk -> desktops.applyDisk(e.info)
+        }
     }
 
     override fun onUnauthorized(m: Machine, token: String?) = markNeedsPairing(m.id, token)
@@ -359,7 +393,10 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
         val was = chat.live
         chat.live = live
         // Reconnected: catch up on whatever happened while the stream was down.
-        if (live && !was) chat.refreshAll()
+        if (live && !was) {
+            chat.refreshAll()
+            desktops.refresh()
+        }
     }
 
     /**
@@ -398,17 +435,25 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
         val m = activeMachine?.takeIf(::usable) ?: return
         val h = _health.value ?: return // connects when health arrives
         if (!h.supports("stream")) return stream.unavailable(UPDATE_MOBD)
+        // Conversation desktops: the open chat's, none for a new chat (its desktop starts with the first turn).
+        val session = if (h.sessionDesktops) chat.currentId.value ?: return noDesktop() else null
+        val key = if (session == null) m.id else "${m.id}/$session"
         val active = stream.state.value.status
         // Health checks call this too: they must not restart a working session. After an error, reconnect.
-        if (liveMachine == m.id && (active == LiveStatus.Connecting || active == LiveStatus.Connected)) return
-        liveMachine = m.id
+        if (liveMachine == key && (active == LiveStatus.Connecting || active == LiveStatus.Connected)) return
+        liveMachine = key
         val screen = appContext.resources.displayMetrics.let { it.widthPixels to it.heightPixels }
         // Remember which transport carried the picture, so the next connect races the WebSocket sooner.
         stream.onTransport = { t -> rememberTransport(m.id, t) }
         stream.connect(_apiClient, LiveQuality.of(m.liveQuality), h.supports("streamResize"), screen,
-            preferWebSocket = m.liveWebSocket == true) {
+            preferWebSocket = m.liveWebSocket == true, sessionId = session) {
             markNeedsPairing(m.id, _apiClient.token)
         }
+    }
+
+    private fun noDesktop() {
+        liveMachine = null
+        stream.unavailable(NO_DESKTOP)
     }
 
     fun checkHealth() {
@@ -432,6 +477,7 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
             if (!_isConnected.value) Log.add("${activeMachine?.name}: connected, runners ${h.runners.orEmpty().joinToString { it.name }}")
             _isConnected.value = h.ok
             _healthError.value = null
+            desktops.attach(client, m!!.id, h.sessionDesktops)
             // The live view waits for health to know whether mobd streams.
             if (first && desktopUsers > 0) connectDesktop()
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -480,8 +526,9 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
             val control = stream.state.value.control
             stream.disconnect()
             val h = _health.value
+            val session = if (h.sessionDesktops) chat.currentId.value ?: return noDesktop() else null
             val screen = appContext.resources.displayMetrics.let { it.widthPixels to it.heightPixels }
-            stream.connect(_apiClient, quality, h?.supports("streamResize") == true, screen, control, m.liveWebSocket == true) {
+            stream.connect(_apiClient, quality, h?.supports("streamResize") == true, screen, control, m.liveWebSocket == true, session) {
                 markNeedsPairing(id, _apiClient.token)
             }
         }

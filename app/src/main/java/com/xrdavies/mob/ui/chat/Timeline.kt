@@ -30,6 +30,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xrdavies.mob.data.*
+import com.xrdavies.mob.data.queueReasonText
 import com.xrdavies.mob.ui.common.Markdown
 import com.xrdavies.mob.ui.common.RemoteImage
 import com.xrdavies.mob.ui.common.duration
@@ -50,7 +51,7 @@ fun TimelineRow(item: TimelineItem, appState: AppState, runner: String?, last: B
         is TimelineItem.Steps -> Column(Modifier.padding(start = 34.dp)) { item.activities.forEach { ActivityRow(it, appState) } }
         is TimelineItem.Group -> ActivityGroup(item.activities, appState)
         is TimelineItem.Ask -> QuestionCard(item.question, appState)
-        is TimelineItem.Queued -> Note(Icons.Filled.Schedule, "Queued" + (item.task.queuePosition?.let { " #$it" } ?: "") + " · waits for the desktop")
+        is TimelineItem.Queued -> Note(Icons.Filled.Schedule, "Queued" + (item.task.queuePosition?.let { " #$it" } ?: "") + (queueReasonText(item.task.queueReason)?.let { " · $it" } ?: " · waits for the desktop"))
         is TimelineItem.Working -> Working(item)
         is TimelineItem.Footer -> TurnFooter(item.task, appState, last)
     }

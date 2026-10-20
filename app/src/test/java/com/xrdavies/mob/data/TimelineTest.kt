@@ -6,7 +6,7 @@ import org.junit.Test
 
 class TimelineTest {
     private fun task(id: String, status: String) = Task(
-        id, "s", "codex", "prompt $id", null, null, status, 0, null, "2026-10-14T00:00:00Z",
+        id, "s", "codex", "prompt $id", null, null, status, 0, null, null, "2026-10-14T00:00:00Z",
         null, null, null, null, null, null, null,
     )
     private fun msg(id: String, task: String, role: String, at: String) = Message(id, task, role, "text $id", at)
