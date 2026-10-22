@@ -92,7 +92,10 @@ git switch main && git pull --ff-only
 make release VERSION=v0.1.0
 ```
 
-`.github/release/tag.mjs` 的检查与 mob 相同（干净的 `main`、与远端一致、版本不回退）。
+`.github/release/tag.mjs` 的检查与 mob 相同（干净的 `main`、与远端一致、版本不回退）。通过后把
+`app/build.gradle.kts` 中本地构建的默认 `versionName`/`versionCode` 改为该版本，提交
+`chore(release): vX.Y.Z`，在该提交打标签，并用 `git push --atomic` 同时推送 `main` 和标签。
+CI 仍以标签注入版本。
 在 Actions 中查看 **Release mob Android**：运行单元测试、构建并签名 `assembleRelease`，
 用 `apksigner` 校验签名，创建草稿 Release。下载 APK 在真机上试装，编辑面向用户的说明，
 然后 **Publish release**（不要勾选 pre-release）。
