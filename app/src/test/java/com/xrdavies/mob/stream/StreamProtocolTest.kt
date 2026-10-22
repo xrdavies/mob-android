@@ -129,6 +129,7 @@ class StreamProtocolTest {
         assertEquals("1280×720 · 30 fps · 3500 kB/s · WebRTC · Tailscale", readoutText(1280, 720, r))
         assertEquals("1280×720", readoutText(1280, 720, null))
         assertEquals("1280×720 · Idle · WebRTC · LAN", readoutText(1280, 720, Readout(0, 0, Network.LAN)))
+        assertEquals("1280×720 · Idle · WebRTC · LAN", readoutText(1280, 720, Readout(0, 4, Network.LAN)))
     }
 
     @Test
