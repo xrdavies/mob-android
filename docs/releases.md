@@ -25,7 +25,7 @@
 
 与 mob、mobd 相同的流程：推送版本标签 → CI 构建并签名 APK、创建**草稿** GitHub
 Release → 手动发布 Release → 独立工作流上传到 Cloudflare R2。官网
-（`../mob-site`）读取 `android/latest.json` 显示下载按钮，无需修改官网代码。
+（`../mob-site`）构建时读取 `android/releases.json` 显示下载按钮，无需修改官网代码。
 
 ```text
 {DOWNLOAD_BASE_URL}/android/latest.json             当前版本
