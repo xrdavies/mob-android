@@ -142,9 +142,8 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     private fun loadMachines(): List<Machine> {
         val raw = prefs.getString("machines", null)
         val stored = raw?.let(::decodeMachines)
-        // Before machines existed the app stored one URL.
-        val legacyUrl = prefs.getString("mobdUrl", "").orEmpty()
-        val list = stored ?: if (legacyUrl.isBlank()) emptyList() else listOf(Machine(UUID.randomUUID().toString(), "Office Mac", legacyUrl))
+        // No machine is made up: a fresh install starts empty and adds one from a mobd link.
+        val list = stored ?: emptyList()
         // VNC is gone: older lists kept a Desktop sign-in (and once a plain-text password); saving
         // again drops it, and the stored passwords are deleted once.
         var changed = (stored == null && list.isNotEmpty()) || raw?.contains("\"vnc") == true
