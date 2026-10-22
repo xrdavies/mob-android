@@ -169,7 +169,8 @@ fun ChatScreen(appState: AppState, onOpenDrawer: (() -> Unit)?, onOpenSettings: 
                                 contentPadding = PaddingValues(16.dp),
                                 verticalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
-                                items(items, key = { it.id }) { TimelineRow(it, appState, detail?.session?.runner, it.id == lastFooter) }
+                                // While a question waits, the composer's status line already says so.
+                                items(items.filterNot { it is TimelineItem.Working && it.waiting }, key = { it.id }) { TimelineRow(it, appState, detail?.session?.runner, it.id == lastFooter) }
                             }
                         }
                     }

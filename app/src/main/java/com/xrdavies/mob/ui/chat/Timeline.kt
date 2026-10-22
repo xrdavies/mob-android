@@ -274,13 +274,12 @@ private fun Note(icon: ImageVector, text: String, color: Color = MaterialTheme.c
 @Composable
 private fun Working(item: TimelineItem.Working) {
     Row(Modifier.padding(start = 34.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (item.waiting) Box(Modifier.size(8.dp).background(Warning, CircleShape))
-        else CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
+        CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
         Spacer(Modifier.width(8.dp))
         Text(
-            if (item.waiting) "Waiting for your answer" else item.latest?.title?.let { "Working · $it" } ?: "Working…",
+            item.latest?.title?.let { "Working · $it" } ?: "Working…",
             style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            color = if (item.waiting) Warning else MaterialTheme.colorScheme.primary,
+            color = MaterialTheme.colorScheme.primary,
         )
     }
 }
