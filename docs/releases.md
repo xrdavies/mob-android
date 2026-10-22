@@ -18,7 +18,7 @@
 | `applicationId` | `com.xrdavies.mob` |
 | `minSdk` / `targetSdk` / `compileSdk` | 26 / 37 / 37 |
 | 发布 ABI | `arm64-v8a`、`armeabi-v7a` |
-| 版本 | CI 从标签注入 `MOB_VERSION_NAME` / `MOB_VERSION_CODE`；本地构建为 `0.1.0` / `1` |
+| 版本 | CI 从标签注入 `MOB_VERSION_NAME` / `MOB_VERSION_CODE`；本地构建的默认值由 `make release` 写入（0.1.0 → `0.1.0` / `1000`） |
 | 应用内更新 | 无。直接下载的用户需从官网手动下载新 APK 覆盖安装 |
 
 ## 一、官网直接下载（R2）【现有】
@@ -72,7 +72,7 @@ openssl base64 -A -in mob-release.jks -out /tmp/keystore.txt
 | Secret（可选） | `SITE_DISPATCH_TOKEN` | 对 `xrdavies/mob-site` 有 Contents 读写权限的 fine-grained token；发布后立即重建官网 |
 
 未配置 `SITE_DISPATCH_TOKEN` 时，官网每小时的定时构建会读取新版本。
-R2 桶、自定义域名、CORS 和缓存规则与桌面端共用，见 `../mob/docs/releases.md` 第 1 节；
+R2 桶、自定义域名和缓存规则与桌面端共用，见 `../mob/docs/releases.md` 第 1 节（不需要 CORS）；
 缓存规则需要让 `/android/latest.json`、`/android/releases.json` 绕过缓存。
 
 > 以上是工作流读取的名称。仓库文件无法证明它们已在 GitHub 上配置，首次发布前到
@@ -82,10 +82,10 @@ R2 桶、自定义域名、CORS 和缓存规则与桌面端共用，见 `../mob/
 
 发布前：
 
-1. 确认要发布的提交已在 `main` 并推送，`make test` 通过。
+1. 确认要发布的提交已在 `main` 并推送，`make test` 通过；当前发布的 mobd 版本已在官网上线。
 2. 决定版本号：不兼容改动升 MAJOR，新功能升 MINOR，修复升 PATCH（MINOR、PATCH ≤ 999）。
-3. 准备面向用户的更新说明（中文、无私有 PR 链接），稍后粘贴到 Release 正文；
-   正文会写进 `notes`，显示在官网下载页和更新日志。
+3. 准备面向用户的更新说明（英文，官网是英文；无私有 PR 链接），稍后粘贴到 Release 正文；
+   正文会写进 `notes`，显示在官网下载页的 “Release notes” 中，只渲染纯文本、`**粗体**`、链接和换行。
 
 ```bash
 git switch main && git pull --ff-only
@@ -104,7 +104,8 @@ CI 仍以标签注入版本。
 
 - 覆盖安装上一版本（不卸载），确认配对和机器列表保留、无签名冲突。
 - 首次安装：扫码配对（相机权限弹窗）、通知权限弹窗（Android 13+）。
-- 发送一条任务、收到完成通知；打开实时桌面。
+- 发送一条任务、收到完成通知；打开实时桌面；回答一个问题。
+- 应用名、启动器和通知权限弹窗都显示 “Mob”。
 
 **Publish mob Android to R2** 随后校验 `SHA256SUMS`，上传版本文件，通过公开地址重新下载
 校验，最后更新 `android/releases.json` 和 `android/latest.json`。失败可重试；已发布文件不同
@@ -118,15 +119,18 @@ CI 仍以标签注入版本。
 - [ ] `curl -s https://mob-releases.0xd.app/android/latest.json` 显示新版本和 `version_code`。
 - [ ] 用 `download.url` 下载 APK，`shasum -a 256` 与 `download.sha256` 一致。
 - [ ] 签名指纹与备份记录一致：`apksigner verify --print-certs mob-android_X.Y.Z.apk`。
-- [ ] 官网下载页、更新日志显示新版本（未配置 `SITE_DISPATCH_TOKEN` 时等待最多一小时）。
+- [ ] 官网下载页（https://mob.0xd.app/download/#android）显示新版本和 APK 按钮（未配置 `SITE_DISPATCH_TOKEN` 时等待最多一小时）。
 - [ ] 在未登录 GitHub 的手机浏览器下载并安装成功。
 
 ### 5. 失败、回滚与热修复
 
-- 本地检查失败：按提示处理工作区、分支或版本；此时尚未创建标签。
-- 标签推送失败：保留本地标签，先 `git ls-remote origin refs/tags/vX.Y.Z`；若远端没有，执行脚本
-  提示的 `git -c push.followTags=false push origin refs/tags/vX.Y.Z:refs/tags/vX.Y.Z`。
-  不要重建或强制移动标签。
+- 本地检查失败：按提示处理工作区、分支或版本；此时尚未写入版本、提交或创建标签。
+- 版本文件格式不符：脚本在写入前停止，工作区保持干净；修正 `app/build.gradle.kts` 后重试。
+- 推送失败：`main` 和标签是原子推送，二者都不会到达远端；本地保留版本提交和标签。先
+  `git ls-remote origin refs/tags/vX.Y.Z`；若远端没有，执行脚本提示的
+  `git -c push.followTags=false push --atomic origin main refs/tags/vX.Y.Z:refs/tags/vX.Y.Z`。
+  若远端 `main` 已有新提交导致被拒：`git tag -d vX.Y.Z && git reset --hard origin/main`，再重新运行
+  `make release`。不要重建或强制移动已推送的标签。
 - 构建或签名失败：修正 `release` 环境配置后重跑失败任务，或手动运行 **Release mob Android**，
   填写原标签。
 - R2 发布失败：手动运行 **Publish mob Android to R2**，填写已发布的原标签；不要改动产物和说明。
@@ -139,7 +143,7 @@ CI 仍以标签注入版本。
 
 - [ ] `main` 已推送，`make test`、`make release-test` 通过。
 - [ ] 版本号高于上一个标签；更新说明已写好。
-- [ ] `make release VERSION=vX.Y.Z` 成功推送标签。
+- [ ] `make release VERSION=vX.Y.Z` 成功：`main` 上有 `chore(release)` 提交，标签已推送。
 - [ ] **Release mob Android** 成功；草稿含 `mob-android_X.Y.Z.apk` 和 `SHA256SUMS`。
 - [ ] 真机覆盖安装和首次安装通过。
 - [ ] 编辑 Release 正文，Publish（非 pre-release）。
