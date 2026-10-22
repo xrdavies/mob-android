@@ -226,10 +226,10 @@ fun readStats(report: List<StatEntry>, prev: StatsSample?, nowMs: Long, remoteAd
     return sample to readout
 }
 
-/** "1408×792 · 30 fps · 380 kB/s · WebRTC · LAN". */
+/** "1408×792 · 30 fps · 380 kB/s · WebRTC · LAN"; "Idle" instead of the rate when no new frame arrived. */
 fun readoutText(width: Int, height: Int, r: Readout?): String {
     val parts = mutableListOf("$width×$height")
-    if (r != null) parts += listOf("${r.fps} fps", "${r.kBps} kB/s", r.transport)
+    if (r != null) parts += (if (r.fps == 0) listOf("Idle") else listOf("${r.fps} fps", "${r.kBps} kB/s")) + r.transport
     r?.network?.let { parts += it.label }
     return parts.joinToString(" · ")
 }
