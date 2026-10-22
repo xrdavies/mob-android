@@ -26,7 +26,7 @@ data class Acknowledgement(val name: String, val license: String, val url: Strin
 
 /** mob-android and the code it ships: the app's dependencies, and the components inside libwebrtc (read from its binary). */
 object Acknowledgements {
-    val app = Acknowledgement("mob-android", "MIT", "https://github.com/xrdavies/mob-android", R.raw.license_mob)
+    val app = Acknowledgement("Mob for Android", "MIT", "https://github.com/xrdavies/mob-android", R.raw.license_mob)
 
     val libraries = listOf(
         Acknowledgement("WebRTC (libwebrtc, io.github.webrtc-sdk:android)", "BSD 3-Clause", "https://github.com/webrtc-sdk/webrtc", R.raw.license_webrtc),

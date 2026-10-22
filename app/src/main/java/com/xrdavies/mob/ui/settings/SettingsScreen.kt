@@ -99,7 +99,9 @@ fun SettingsScreen(appState: AppState) {
             }
 
             SettingsCard("About") {
-                Text("mob-android v0.1.0")
+                val context = LocalContext.current
+                val version = remember { context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty() }
+                Text("Mob for Android $version")
                 Text("MIT License", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton(onClick = { showLicenses = true }, contentPadding = PaddingValues(0.dp)) { Text("Open source licences") }
             }
@@ -213,7 +215,7 @@ private fun NotificationsCard(appState: AppState) {
             style = MaterialTheme.typography.bodyMedium,
         )
         if (!allowed) {
-            Text("Notifications are off for mob.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            Text("Notifications are off for Mob.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             OutlinedButton(onClick = {
                 context.startActivity(
                     Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
@@ -225,7 +227,7 @@ private fun NotificationsCard(appState: AppState) {
             Column(Modifier.weight(1f)) {
                 Text("Keep watching in the background", style = MaterialTheme.typography.bodyLarge)
                 Text(
-                    "Keeps the connection open while mob is closed. Android shows a silent notification while this is on.",
+                    "Keeps the connection open while Mob is closed. Android shows a silent notification while this is on.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

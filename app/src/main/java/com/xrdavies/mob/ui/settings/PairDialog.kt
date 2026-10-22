@@ -129,7 +129,7 @@ fun PairDialog(appState: AppState, machine: Machine?, onDismiss: () -> Unit) {
                 }
 
                 Text(
-                    "Connect over the same network, a VPN or Tailscale address, or a self-hosted Tailscale Funnel HTTPS address: mobd link prints the right link for each. MOB relay — coming soon.",
+                    "Connect over the same network, a VPN or Tailscale address, or a self-hosted Tailscale Funnel HTTPS address: mobd link prints the right link for each. Mob relay — coming soon.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())

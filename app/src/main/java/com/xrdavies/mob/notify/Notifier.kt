@@ -32,7 +32,7 @@ class Notifier(private val context: Context) {
                 description = "A task finished or failed"
             })
             nm.createNotificationChannel(NotificationChannel(WATCH, "Background connection", NotificationManager.IMPORTANCE_MIN).apply {
-                description = "Shown while mob watches your office Macs in the background"
+                description = "Shown while Mob watches your office Macs in the background"
             })
         }
     }

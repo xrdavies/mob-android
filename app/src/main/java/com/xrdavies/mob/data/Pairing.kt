@@ -54,7 +54,7 @@ data class PairLink(val origin: String, val invite: String, val serverId: String
                 if (params.put(k, decode(part.substringAfter('=', ""))) != null) throw PairException("The link repeats “$k”")
             }
             val v = params["v"] ?: throw PairException("The link has no version (v=1). Copy the whole link printed by mobd link")
-            if (v != "1") throw PairException("This link needs a newer version of mob (version $v)")
+            if (v != "1") throw PairException("This link needs a newer version of Mob (version $v)")
             val invite = params["invite"]?.takeIf { it.isNotBlank() } ?: throw PairException("The link has no invite")
             val serverId = params["serverId"]?.takeIf { it.isNotBlank() } ?: throw PairException("The link has no server ID")
             val port = if (uri.port == -1) "" else ":${uri.port}"
