@@ -168,6 +168,10 @@ data class SessionDetail(
     val tasks: List<Task>?,
     val activities: List<Activity>?,
     val questions: List<Question>?,
+    /** The conversation's revision; null from mobd versions without incremental fetch. */
+    val rev: Long? = null,
+    /** False when this answers `since` with only the turns changed after it. */
+    val full: Boolean? = null,
 )
 
 data class Upload(val id: String, val name: String?, val mime: String?, val size: Long?, val url: String?)

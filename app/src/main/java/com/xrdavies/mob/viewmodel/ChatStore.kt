@@ -16,9 +16,41 @@ data class ChatDetail(
     val tasks: List<Task>,
     val activities: List<Activity>,
     val questions: List<Question>,
+    /** mobd's revision this state was fetched at; null from mobd versions without it. */
+    val rev: Long? = null,
 ) {
     val current: Task? get() = tasks.lastOrNull()
     val busy: Boolean get() = Status.busy(current?.status)
+
+    companion object {
+        /**
+         * [d] applied to [base]: a full answer replaces it; a partial one (`full: false`) replaces
+         * only the turns it carries, with their messages, steps and questions, and keeps the rest.
+         */
+        fun merged(d: SessionDetail, base: ChatDetail?): ChatDetail {
+            val tasks = d.tasks.orEmpty()
+            if (d.full != false || base == null || base.session.id != d.session.id) {
+                return ChatDetail(d.session, tasks, d.activities.orEmpty(), d.questions.orEmpty(), d.rev)
+            }
+            val all = base.tasks.toMutableList()
+            for (t in tasks) {
+                val i = all.indexOfFirst { it.id == t.id }
+                if (i >= 0) all[i] = t else all += t
+            }
+            val changed = tasks.map { it.id }.toSet()
+            val known = all.map { it.id }.toSet()
+            // Kept in turn order, so a changed older turn stays in its place.
+            fun <T> pick(old: List<T>, new: List<T>, turn: (T) -> String): List<T> {
+                val byTurn = (old.filterNot { turn(it) in changed } + new).groupBy(turn)
+                return all.flatMap { byTurn[it.id].orEmpty() } + old.filterNot { turn(it) in known }
+            }
+            return ChatDetail(
+                d.session.copy(messages = pick(base.session.messages.orEmpty(), d.session.messages.orEmpty()) { it.taskId }),
+                all, pick(base.activities, d.activities.orEmpty()) { it.taskId },
+                pick(base.questions, d.questions.orEmpty()) { it.taskId }, d.rev ?: base.rev,
+            )
+        }
+    }
 }
 
 /**
@@ -69,6 +101,9 @@ class ChatStore(
     private var stream: Job? = null
     private var streamTask: String? = null
 
+    /** Recently opened conversations on this machine, oldest first: reopening one shows it at once. */
+    private val cache = LinkedHashMap<String, ChatDetail>()
+
     /** True while the machine's global event stream is connected; polling then only backs it up. */
     var live = false
 
@@ -84,6 +119,7 @@ class ChatStore(
         _archived.value = null
         _detail.value = null
         _currentId.value = null
+        cache.clear()
         if (api == null) return
         val gen = generation
         listPoll = scope.launch {
@@ -151,15 +187,22 @@ class ChatStore(
 
     /** Opens a conversation; null starts a new chat. */
     fun open(id: String?) {
+        _detail.value?.let(::remember)
         _currentId.value = id
-        _detail.value = null
+        _detail.value = id?.let { cache[it] }
         _cancelling.value = false
         prefs.edit().putString(key(), id).apply()
         poll?.cancel()
         stopStream()
         if (id == null) return
-        _loading.value = true
+        _loading.value = _detail.value == null
         follow(id)
+    }
+
+    private fun remember(d: ChatDetail) {
+        cache.remove(d.session.id)
+        cache[d.session.id] = d
+        if (cache.size > 8) cache.remove(cache.keys.first())
     }
 
     /** Fetches the open conversation now and keeps refreshing it (fast while a turn runs). */
@@ -171,9 +214,9 @@ class ChatStore(
             var first = true
             while (isActive && gen == generation && _currentId.value == id) {
                 try {
-                    val d = client.api.getSession(id)
+                    val d = client.api.getSession(id, _detail.value?.rev)
                     if (gen != generation || _currentId.value != id) break
-                    val fresh = ChatDetail(d.session, d.tasks.orEmpty(), d.activities.orEmpty(), d.questions.orEmpty())
+                    val fresh = ChatDetail.merged(d, _detail.value)
                     val shown = _detail.value
                     // A snapshot fetched before newer stream events must not replace them.
                     val stale = shown != null && shown.current?.id == fresh.current?.id && fresh.busy &&
@@ -190,7 +233,7 @@ class ChatStore(
                     }
                     if (first && e is retrofit2.HttpException && e.code() == 404) {
                         // The saved chat was deleted elsewhere.
-                        if (gen == generation) open(null)
+                        if (gen == generation) removeSession(id)
                         break
                     }
                     if (first && gen == generation) fail(e)
@@ -291,7 +334,7 @@ class ChatStore(
             )
             session = session.copy(status = ev.status)
         }
-        _detail.value = ChatDetail(session, d.tasks.map { if (it.id == taskId) t else it }, activities, questions)
+        _detail.value = d.copy(session = session, tasks = d.tasks.map { if (it.id == taskId) t else it }, activities = activities, questions = questions)
         if (Status.terminal(ev.status)) {
             _cancelling.value = false
             stopStream()
@@ -327,6 +370,7 @@ class ChatStore(
         _sessions.value = _sessions.value.filterNot { it.id == id }
         _archived.value = _archived.value?.filterNot { it.id == id }
         if (id == _currentId.value) open(null)
+        cache.remove(id)
     }
 
     /** After the global stream reconnected past its buffer: refetch everything. */
@@ -413,7 +457,7 @@ class ChatStore(
 
     fun delete(s: Session) = launch { client, _ ->
         client.api.deleteSession(s.id).orThrow()
-        if (s.id == _currentId.value) open(null)
+        removeSession(s.id)
         loadSessions()
     }
 }

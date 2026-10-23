@@ -45,8 +45,9 @@ interface MobApi {
     @GET("sessions")
     suspend fun listSessions(@Query("archived") archived: String = "false"): SessionsResponse
 
+    /** With [since], mobd may answer only the turns changed after that revision (see ChatDetail.merged). */
     @GET("sessions/{id}")
-    suspend fun getSession(@Path("id") id: String): SessionDetail
+    suspend fun getSession(@Path("id") id: String, @Query("since") since: Long? = null): SessionDetail
 
     @PATCH("sessions/{id}")
     suspend fun patchSession(@Path("id") id: String, @Body request: PatchSessionRequest): Session
