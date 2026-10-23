@@ -30,6 +30,7 @@ private val CHECK_LABELS = mapOf(
     "actuation" to "Desktop control",
     "codex" to "Codex",
     "claude" to "Claude Code",
+    "pi" to "Pi",
 )
 
 data class Runner(

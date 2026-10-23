@@ -132,7 +132,6 @@ fun Composer(appState: AppState) {
 
     Surface(tonalElevation = 2.dp, shadowElevation = 4.dp, shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-            if (task != null && Status.busy(task.status)) TurnStatus(task.status, task.queuePosition, task.waiting == true, cancelling, task.startedAt)
 
             if (attachments.isNotEmpty()) {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
@@ -208,30 +207,6 @@ fun Composer(appState: AppState) {
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun TurnStatus(status: String, queuePosition: Int?, waiting: Boolean, cancelling: Boolean, startedAt: String?) {
-    var tick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(status) {
-        while (true) {
-            delay(1000)
-            tick++
-        }
-    }
-    val (color, label) = when {
-        cancelling -> MaterialTheme.colorScheme.error to "Stopping…"
-        status == Status.QUEUED -> MaterialTheme.colorScheme.onSurfaceVariant to ("Queued" + (queuePosition?.let { " #$it" } ?: "") + " · waits for the desktop")
-        waiting -> Color(0xFFD97706) to "Waiting for your answer"
-        // Reading tick recomposes this line every second.
-        else -> MaterialTheme.colorScheme.primary to "Working… ${tick.let { duration(startedAt, null) }}"
-    }
-    Row(Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (status == Status.RUNNING && !waiting && !cancelling) CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
-        else Box(Modifier.size(8.dp).background(color, CircleShape))
-        Spacer(Modifier.width(8.dp))
-        Text(label, style = MaterialTheme.typography.labelMedium, color = color)
     }
 }
 

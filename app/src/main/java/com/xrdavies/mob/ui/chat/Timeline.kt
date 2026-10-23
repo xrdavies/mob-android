@@ -40,7 +40,7 @@ import com.xrdavies.mob.viewmodel.AppState
 private val Success = Color(0xFF16A34A)
 private val Warning = Color(0xFFD97706)
 
-private val RUNNER_LABELS = mapOf("codex" to "Codex", "claude" to "Claude Code")
+private val RUNNER_LABELS = mapOf("codex" to "Codex", "claude" to "Claude Code", "pi" to "Pi")
 
 /** One timeline entry. [last] marks the newest turn footer (it offers Retry). */
 @Composable
@@ -52,7 +52,7 @@ fun TimelineRow(item: TimelineItem, appState: AppState, runner: String?, last: B
         is TimelineItem.Group -> ActivityGroup(item.activities, appState)
         is TimelineItem.Ask -> QuestionCard(item.question, appState)
         is TimelineItem.Queued -> Note(Icons.Filled.Schedule, "Queued" + (item.task.queuePosition?.let { " #$it" } ?: "") + (queueReasonText(item.task.queueReason)?.let { " · $it" } ?: " · waits for the desktop"))
-        is TimelineItem.Working -> Working(item)
+        is TimelineItem.Working -> Working(item, appState)
         is TimelineItem.Footer -> TurnFooter(item.task, appState, last)
     }
 }
@@ -271,16 +271,29 @@ private fun Note(icon: ImageVector, text: String, color: Color = MaterialTheme.c
     }
 }
 
+/** The running turn's state and how long it has run; the only place the chat shows it. */
 @Composable
-private fun Working(item: TimelineItem.Working) {
+private fun Working(item: TimelineItem.Working, appState: AppState) {
+    val cancelling by appState.chat.cancelling.collectAsState()
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(item.task.id) {
+        while (true) {
+            kotlinx.coroutines.delay(1000)
+            tick++
+        }
+    }
+    val (color, label) = when {
+        cancelling -> MaterialTheme.colorScheme.error to "Stopping…"
+        item.waiting -> Color(0xFFD97706) to "Waiting for your answer"
+        // Reading tick recomposes this line every second.
+        else -> MaterialTheme.colorScheme.primary to
+            listOfNotNull("Working", tick.let { duration(item.task.startedAt, null) }.takeIf { it.isNotEmpty() }, item.latest?.title).joinToString(" · ")
+    }
     Row(Modifier.padding(start = 34.dp), verticalAlignment = Alignment.CenterVertically) {
-        CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
+        if (!cancelling && !item.waiting) CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
+        else Box(Modifier.size(8.dp).background(color, CircleShape))
         Spacer(Modifier.width(8.dp))
-        Text(
-            item.latest?.title?.let { "Working · $it" } ?: "Working…",
-            style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            color = MaterialTheme.colorScheme.primary,
-        )
+        Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, color = color)
     }
 }
 
