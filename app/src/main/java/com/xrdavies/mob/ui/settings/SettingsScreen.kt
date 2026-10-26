@@ -4,7 +4,9 @@ import com.xrdavies.mob.stream.LiveQuality
 import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -32,7 +34,7 @@ import androidx.compose.ui.unit.dp
 import com.xrdavies.mob.data.Machine
 import com.xrdavies.mob.viewmodel.AppState
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun SettingsScreen(appState: AppState) {
     val machines by appState.machines.collectAsState()
@@ -64,25 +66,34 @@ fun SettingsScreen(appState: AppState) {
                     Text("No office Mac yet. Run mobd link on the Mac that runs the agent, then add it here.", style = MaterialTheme.typography.bodyMedium)
                 }
                 machines.forEach { m ->
-                    Row(
-                        Modifier.fillMaxWidth().clickable { appState.selectMachine(m.id) },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RadioButton(selected = m.id == activeId, onClick = { appState.selectMachine(m.id) })
-                        Column(Modifier.weight(1f)) {
-                            Text(m.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(
-                                m.mobdUrl,
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            )
-                            if (m.needsPairing == true) {
-                                Text("Needs pairing", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+                    // Tap selects the machine; long-press chooses the route (LAN or Remote) and more.
+                    var menu by remember { mutableStateOf(false) }
+                    Box {
+                        Row(
+                            Modifier.fillMaxWidth().combinedClickable(onLongClick = { menu = true }) { appState.selectMachine(m.id) },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = m.id == activeId, onClick = { appState.selectMachine(m.id) })
+                            Column(Modifier.weight(1f)) {
+                                Text(m.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                RouteLine(appState, m)
+                                if (m.needsPairing == true && m.addresses.size == 1) {
+                                    Text("Needs pairing", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+                                }
                             }
+                            if (m.needsPairing == true) TextButton(onClick = { pairing = m.id }) { Text("Pair again") }
+                            IconButton(onClick = { editing = m }) { Icon(Icons.Filled.Edit, "Edit ${m.name}") }
                         }
-                        if (m.needsPairing == true) TextButton(onClick = { pairing = m.id }) { Text("Pair again") }
-                        IconButton(onClick = { editing = m }) { Icon(Icons.Filled.Edit, "Edit ${m.name}") }
-                        IconButton(onClick = { deleting = m }) { Icon(Icons.Filled.Delete, "Delete ${m.name}") }
+                        DropdownMenu(menu, onDismissRequest = { menu = false }) {
+                            RouteMenuItems(appState, m) { menu = false }
+                            if (m.addresses.size > 1) HorizontalDivider()
+                            DropdownMenuItem(text = { Text("Edit") }, onClick = { menu = false; editing = m })
+                            DropdownMenuItem(text = { Text("Pair again or add address") }, onClick = { menu = false; pairing = m.id })
+                            DropdownMenuItem(
+                                text = { Text("Remove", color = MaterialTheme.colorScheme.error) },
+                                onClick = { menu = false; deleting = m },
+                            )
+                        }
                     }
                 }
                 OutlinedButton(onClick = { pairing = "" }) {
@@ -115,10 +126,15 @@ fun SettingsScreen(appState: AppState) {
 
     editing?.let { m ->
         MachineDialog(
-            initial = m,
-            onSave = { updated ->
-                appState.saveMachine(updated)
+            initial = machines.firstOrNull { it.id == m.id } ?: m,
+            onSave = { name, labels ->
+                appState.saveEdits(m.id, name, labels)
                 editing = null
+            },
+            onRemoveAddress = { appState.removeAddress(m.id, it) },
+            onRemove = {
+                editing = null
+                deleting = m
             },
             onPairAgain = {
                 editing = null
@@ -243,7 +259,9 @@ private fun NotificationsCard(appState: AppState) {
 @Composable
 private fun MachineDialog(
     initial: Machine,
-    onSave: (Machine) -> Unit,
+    onSave: (name: String, labels: Map<String, String>) -> Unit,
+    onRemoveAddress: (String) -> Unit,
+    onRemove: () -> Unit,
     onPairAgain: () -> Unit,
     onQuality: (LiveQuality) -> Unit,
     onAgents: () -> Unit,
@@ -251,21 +269,34 @@ private fun MachineDialog(
 ) {
     var name by remember { mutableStateOf(initial.name) }
     var quality by remember { mutableStateOf(LiveQuality.of(initial.liveQuality)) }
+    val labels = remember { mutableStateMapOf<String, String>().apply { initial.addresses.forEach { put(it.id, it.label.orEmpty()) } } }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(initial.name) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Connection", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 OutlinedTextField(name, { name = it }, label = { Text("Name") }, placeholder = { Text("Office Mac") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                // The address comes from pairing; a new one needs a new link.
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("mobd URL", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(initial.mobdUrl, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // Each address comes from pairing; a new one needs a new link.
+                Text("Addresses", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                initial.addresses.forEach { a ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            OutlinedTextField(
+                                labels[a.id].orEmpty(), { labels[a.id] = it }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                                label = { Text(if (a.id == initial.address?.id) "${a.kind.title} · in use" else a.kind.title) },
+                                placeholder = { Text(a.kind.title) },
+                            )
+                            Text(a.url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (a.needsPairing == true) Text("Needs pairing", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
+                        }
+                        if (initial.addresses.size > 1) IconButton(onClick = { onRemoveAddress(a.id) }) { Icon(Icons.Filled.Delete, "Remove ${a.url}") }
                     }
-                    TextButton(onClick = onPairAgain) { Text("Pair again") }
                 }
+                TextButton(onClick = onPairAgain) { Text("Add address…") }
+                Text(
+                    "Each address is paired on its own, so the device token never goes to an address it was not paired on. To add one, run mobd link (or mobd link --lan) on the office Mac and scan its code. Long-press the machine in the list to choose which address Mob uses.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Text("Agents", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 Text("Default agent, models, default model and effort, and permissions on this machine, shared by every device.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -282,11 +313,12 @@ private fun MachineDialog(
                     }
                 }
                 Text(quality.hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = onRemove) { Text("Remove machine", color = MaterialTheme.colorScheme.error) }
             }
         },
         confirmButton = {
             TextButton(onClick = {
-                onSave(initial.copy(name = name.trim().ifBlank { "Office Mac" }, liveQuality = quality.wire))
+                onSave(name.trim().ifBlank { "Office Mac" }, labels.toMap())
             }) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },

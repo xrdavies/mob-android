@@ -37,6 +37,8 @@ import com.xrdavies.mob.ui.desktop.DesktopDrawer
 import com.xrdavies.mob.ui.desktop.LiveViewDialog
 import com.xrdavies.mob.ui.settings.NeedsPairingBanner
 import com.xrdavies.mob.ui.settings.PairDialog
+import com.xrdavies.mob.ui.settings.RouteBanner
+import com.xrdavies.mob.ui.settings.RouteMenuItems
 import com.xrdavies.mob.viewmodel.AppState
 import kotlinx.coroutines.delay
 
@@ -109,10 +111,20 @@ fun ChatScreen(appState: AppState, onOpenDrawer: (() -> Unit)?, onOpenSettings: 
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(7.dp).background(if (isConnected) Color(0xFF22C55E) else Color(0xFFEF4444), CircleShape))
                             Spacer(Modifier.width(6.dp))
-                            Text(
-                                machine?.name ?: "No office Mac", style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
-                            )
+                            val route = machine?.address?.takeIf { machine.addresses.size > 1 }
+                            // Two ways to reach the Mac: show which one, and let the user switch here.
+                            var routeMenu by remember { mutableStateOf(false) }
+                            Box {
+                                Text(
+                                    if (machine != null && route != null) "${machine.name} · via ${machine.label(route)}" else machine?.name ?: "No office Mac",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+                                    modifier = if (route != null) Modifier.clickable { routeMenu = true } else Modifier,
+                                )
+                                if (machine != null && route != null) DropdownMenu(routeMenu, onDismissRequest = { routeMenu = false }) {
+                                    RouteMenuItems(appState, machine) { routeMenu = false }
+                                }
+                            }
                             val waiting = queued[machine?.id] ?: 0
                             if (waiting > 0) {
                                 Text(" · queue $waiting", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
@@ -150,6 +162,7 @@ fun ChatScreen(appState: AppState, onOpenDrawer: (() -> Unit)?, onOpenSettings: 
             val paneWidth = min(maxWidth * 0.4f, 520.dp)
             Row(Modifier.fillMaxSize()) {
                 Column(Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (machine != null) RouteBanner(appState, machine, Modifier.widthIn(max = 840.dp).padding(8.dp))
                     if (machine?.needsPairing == true) {
                         NeedsPairingBanner(machine, onPair = { pairing = true }, Modifier.widthIn(max = 840.dp).padding(8.dp))
                     }

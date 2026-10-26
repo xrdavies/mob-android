@@ -51,9 +51,12 @@ fun PairDialog(appState: AppState, machine: Machine?, onDismiss: () -> Unit) {
 
     val parsed = remember(text) { if (text.isBlank()) null else runCatching { PairLink.parse(text) } }
     val link = parsed?.getOrNull()
-    val newOrigin = machine != null && link != null && !link.sameOrigin(machine.mobdUrl)
-    val otherOffice = machine?.serverId != null && link != null && link.serverId != machine.serverId
-    val needsConfirm = newOrigin || otherOffice
+    // The saved office this link belongs to: the machine paired again, or the one with its server ID.
+    val target = machine ?: link?.let { l -> appState.machines.value.firstOrNull { it.serverId == l.serverId } }
+    val otherOffice = target?.serverId != null && link != null && link.serverId != target.serverId
+    // Another address of the saved office: pairing adds it to the same row, no confirmation needed.
+    val newAddress = target?.serverId != null && !otherOffice && link != null && target.addresses.none { link.sameOrigin(it.url) }
+    val needsConfirm = otherOffice
     val linkError = parsed?.exceptionOrNull()?.readable()
 
     val scanner = rememberLauncherForActivityResult(ScanContract()) { r ->
@@ -112,12 +115,16 @@ fun PairDialog(appState: AppState, machine: Machine?, onDismiss: () -> Unit) {
                 if (link != null) {
                     Text("Pairs with ${link.origin}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                     if (link.insecure) Warning("Not encrypted: use only on a trusted network or a Tailscale/VPN address")
-                    if (newOrigin) Warning("This link points to ${link.origin}, not the saved address ${machine?.mobdUrl}. The device token will only be sent to the new address.")
-                    if (otherOffice) Warning("This link is for a different office (its server ID differs from the one paired before).")
+                    if (newAddress && target != null) Text(
+                        "Adds this address to ${target.name} as ${com.xrdavies.mob.data.AddressKind.of(link.origin).title}, next to " +
+                            target.addresses.joinToString { target.label(it) } + ". Mob uses it from now on; long-press ${target.name} in the machine list to switch.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (otherOffice) Warning("This link is for a different office (its server ID differs from the one paired before). Pairing replaces its addresses.")
                     if (needsConfirm) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(confirmed, { confirmed = it }, enabled = !busy)
-                            Text(if (otherOffice) "Replace it with this office" else "Use the new address", style = MaterialTheme.typography.bodyMedium)
+                            Text("Replace it with this office", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                     OutlinedTextField(
@@ -156,7 +163,7 @@ fun PairDialog(appState: AppState, machine: Machine?, onDismiss: () -> Unit) {
                         }
                     }
                 },
-            ) { Text("Pair") }
+            ) { Text(if (newAddress) "Add address" else "Pair") }
         },
         dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text("Cancel") } },
     )

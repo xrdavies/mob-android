@@ -98,6 +98,10 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     private val watchers = mutableMapOf<String, MachineWatcher>()
     private val liveMachines = mutableSetOf<String>()
 
+    /** Whether each machine's event stream is connected over the address in use; absent while not known yet. */
+    private val _routeUp = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    val routeUp: StateFlow<Map<String, Boolean>> = _routeUp
+
     /** Chats waiting for an answer, per machine; the badge counts them all. */
     private val _waiting = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
     val waitingCount: StateFlow<Int> get() = _waitingCount
@@ -151,12 +155,14 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
             list.forEach { secrets.delete("${it.id}.vncPassword") }
             prefs.edit().remove("vncUsername").remove("vncPassword").putBoolean("vncRemoved", true).apply()
         }
-        // Machines from before pairing have no token and wait for the user to pair them.
+        // Addresses from before pairing have no token and wait for the user to pair them.
         val migrated = list.map { m ->
-            if (m.needsPairing != true && secrets.get(SecretStore.token(m.id)) == null) {
-                changed = true
-                m.copy(needsPairing = true)
-            } else m
+            m.copy(addresses = m.addresses.map { a ->
+                if (a.needsPairing != true && secrets.get(SecretStore.token(a.id)) == null) {
+                    changed = true
+                    a.copy(needsPairing = true)
+                } else a
+            })
         }
         if (changed) saveMachines(migrated)
         return migrated
@@ -166,7 +172,8 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
         prefs.edit().putString("machines", gson.toJson(list)).apply()
     }
 
-    private fun token(m: Machine): String? = secrets.get(SecretStore.token(m.id))
+    /** The token of the address in use. */
+    private fun token(m: Machine): String? = secrets.get(m.tokenKey)
 
     /** Paired and not refused: requests to it make sense. */
     private fun usable(m: Machine?): Boolean = m != null && m.needsPairing != true && token(m) != null
@@ -219,10 +226,11 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
 
     fun deleteMachine(id: String) {
         val updated = _machines.value.filterNot { it.id == id }
-        _machines.value = updated
         setWaiting(id) { emptySet() }
         saveMachines(updated)
-        secrets.delete(SecretStore.token(id))
+        val gone = _machines.value.firstOrNull { it.id == id }
+        _machines.value = updated
+        gone?.addresses?.forEach { secrets.delete(SecretStore.token(it.id)) } ?: secrets.delete(SecretStore.token(id))
         prefs.edit().remove("session.$id").apply()
         if (id == _activeMachineId.value) {
             _activeMachineId.value = updated.firstOrNull()?.id
@@ -233,21 +241,56 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
 
     /**
      * Pairs this device with the office in [link]: redeems the invite, stores the token and
-     * activates the machine. Updates [existing] (Pair again) or the machine already paired with
-     * that office; otherwise adds one. Runs in the view model so leaving the dialog cannot lose
-     * a redeemed invite. Fails with a readable message.
+     * activates the machine. Pairs a saved address of [existing] (or of the machine already paired
+     * with that office) again, or adds the link's address to its row; otherwise adds a machine.
+     * Each address has its own token, so a token never goes to an address it was not paired on.
+     * Runs in the view model so leaving the dialog cannot lose a redeemed invite. Fails with a
+     * readable message.
      */
     fun pair(link: PairLink, deviceName: String, existing: Machine?): Deferred<Unit> = viewModelScope.async {
         val r = redeemInvite(link, deviceName, pairingHttp)
         val base = existing?.let { e -> _machines.value.firstOrNull { it.id == e.id } }
             ?: _machines.value.firstOrNull { it.serverId == r.serverId }
-        val m = (base ?: Machine(newMachineId(), link.origin.toHttpUrl().host, link.origin))
-            .copy(mobdUrl = link.origin, serverId = r.serverId, clientId = r.clientId, needsPairing = null)
-        // The new token and its origin are saved together, so the old token never reaches a new address.
-        check(secrets.set(SecretStore.token(m.id), r.token)) { "Could not store the device token on this phone" }
+            ?: Machine(newMachineId(), link.origin.toHttpUrl().host, link.origin)
+        val (m, paired, dropped) = base.pairing(link.origin, r.serverId, r.clientId, ::newMachineId)
+        check(secrets.set(SecretStore.token(paired.id), r.token)) { "Could not store the device token on this phone" }
+        dropped.filter { it != SecretStore.token(paired.id) }.forEach(secrets::delete)
         Log.add("${m.name}: paired with ${link.origin}")
+        _routeUp.value = _routeUp.value - m.id
         saveMachine(m)
         selectMachine(m.id)
+    }
+
+    /** Uses another of the machine's addresses and opens the machine; the app never switches by itself. */
+    fun selectRoute(machine: String, address: String) {
+        val m = _machines.value.firstOrNull { it.id == machine } ?: return
+        if (m.addresses.none { it.id == address }) return
+        if (m.address?.id != address) {
+            val next = m.copy(route = address)
+            Log.add("${m.name}: using ${next.mobdUrl}")
+            _routeUp.value = _routeUp.value - machine
+            liveMachines -= machine
+            saveMachine(next)
+        }
+        selectMachine(machine)
+    }
+
+    /** Removes one address from this phone; the machine goes with its last one. */
+    fun removeAddress(machine: String, address: String) {
+        val m = _machines.value.firstOrNull { it.id == machine } ?: return
+        if (m.addresses.size < 2) return deleteMachine(machine)
+        secrets.delete(SecretStore.token(address))
+        _routeUp.value = _routeUp.value - machine
+        liveMachines -= machine
+        saveMachine(m.copy(addresses = m.addresses.filterNot { it.id == address }, route = m.route?.takeIf { it != address }))
+    }
+
+    /** Saves the name and address labels from the editor; addresses and pairing stay as stored. */
+    fun saveEdits(machine: String, name: String, labels: Map<String, String>) {
+        val m = _machines.value.firstOrNull { it.id == machine } ?: return
+        saveMachine(m.copy(name = name, addresses = m.addresses.map { a ->
+            labels[a.id]?.let { l -> a.copy(label = l.trim().ifEmpty { null }) } ?: a
+        }))
     }
 
     /** No Authorization here: POST /pair proves itself with the invite. */
@@ -265,7 +308,7 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
             val m = _machines.value.firstOrNull { it.id == id } ?: return@launch
             if (m.needsPairing == true || token(m) != token) return@launch
             Log.error("${m.name}: $NEEDS_PAIRING")
-            saveMachine(m.copy(needsPairing = true))
+            saveMachine(m.withNeedsPairing(true))
         }
     }
 
@@ -278,6 +321,7 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
                 if (gone) {
                     w.job.cancel()
                     liveMachines -= id
+                    _routeUp.value = _routeUp.value - id
                 }
             }
         }
@@ -388,6 +432,7 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
 
     override fun onLive(m: Machine, live: Boolean) {
         if (live) liveMachines += m.id else liveMachines -= m.id
+        _routeUp.value = _routeUp.value + (m.id to live)
         if (m.id != _activeMachineId.value) return
         val was = chat.live
         chat.live = live

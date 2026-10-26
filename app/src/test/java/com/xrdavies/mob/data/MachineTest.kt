@@ -22,10 +22,74 @@ class MachineTest {
     }
 
     @Test
+    fun machineSavedBeforeAddressesKeepsItsTokenKey() {
+        val m = decodeMachines("""[{"id":"m1","name":"Office","mobdUrl":"http://office.local:8080","serverId":"S","clientId":"C"}]""")!!.single()
+        assertEquals(listOf("m1"), m.addresses.map { it.id })
+        assertEquals("m1.token", m.tokenKey)
+        assertEquals("http://office.local:8080", m.mobdUrl)
+        assertEquals("C", m.clientId)
+        // Saved again in the new shape, it reads back the same.
+        assertEquals(m, decodeMachines(ApiClient.gson.toJson(listOf(m)))!!.single())
+        assertFalse(ApiClient.gson.toJson(listOf(m)).contains("mobdUrl"))
+    }
+
+    @Test
+    fun addressKinds() {
+        for (lan in listOf("http://office-mac.local:8080", "http://192.168.1.20:8080", "http://10.0.0.2", "http://172.20.1.1", "http://[fd00::1]:8080")) {
+            assertEquals(lan, AddressKind.LAN, AddressKind.of(lan))
+        }
+        for (remote in listOf("https://office.tail49e461.ts.net", "https://mob.example.com", "http://100.101.1.2:8080", "http://172.32.0.1")) {
+            assertEquals(remote, AddressKind.REMOTE, AddressKind.of(remote))
+        }
+    }
+
+    @Test
+    fun pairingAddsASecondAddressToTheSameOffice() {
+        var n = 0
+        val ids = { "a${++n}" }
+        val m = Machine("m", "Office", "http://office.local:8080").copy(serverId = "S")
+        val (two, paired, dropped) = m.pairing("https://office.tail.ts.net", "S", "C2", ids)
+        assertEquals("a1", paired.id)
+        assertEquals(emptyList<String>(), dropped)
+        assertEquals(listOf("http://office.local:8080", "https://office.tail.ts.net"), two.addresses.map { it.url })
+        assertEquals("the first address keeps its token", "m.token", SecretStore.token(two.addresses[0].id))
+        assertEquals("the new address is used", "https://office.tail.ts.net", two.mobdUrl)
+        assertEquals(listOf("LAN", "Remote"), two.addresses.map { two.label(it) })
+
+        // The same address again is paired again, not added.
+        val (again, a, _) = two.pairing("https://office.tail.ts.net", "S", "C3", ids)
+        assertEquals("a1", a.id)
+        assertEquals(2, again.addresses.size)
+        assertEquals("C3", again.clientId)
+
+        // Another office replaces the addresses (the user confirmed it) and drops their tokens.
+        val (other, _, gone) = two.pairing("http://10.0.0.9:8080", "T", "D", ids)
+        assertEquals(listOf("http://10.0.0.9:8080"), other.addresses.map { it.url })
+        assertEquals("m", other.addresses[0].id)
+        assertEquals(setOf("m.token", "a1.token"), gone.toSet())
+    }
+
+    @Test
+    fun routeLabelsAndChoice() {
+        var m = Machine("m", "Office", "https://a.ts.net")
+        m = m.copy(addresses = m.addresses + MachineAddress("b", "https://b.example.com"))
+        assertEquals(listOf("Remote", "Remote 2"), m.addresses.map { m.label(it) })
+        assertEquals("Cloudflare", m.copy(addresses = listOf(m.addresses[0], m.addresses[1].copy(label = "Cloudflare"))).let { it.label(it.addresses[1]) })
+        assertEquals("the first address without a choice", "https://a.ts.net", m.mobdUrl)
+        m = m.copy(route = "b")
+        assertEquals("https://b.example.com", m.mobdUrl)
+        m = m.withNeedsPairing(true)
+        assertEquals(true, m.addresses[1].needsPairing)
+        assertNull("only the refused address needs pairing", m.addresses[0].needsPairing)
+        assertEquals("https://a.ts.net", m.copy(route = "gone").mobdUrl)
+    }
+
+    @Test
     fun pairedMachineRoundTrip() {
-        val json = ApiClient.gson.toJson(listOf(Machine("m1", "Office", "http://h", "S", "C", true, "low", true)))
+        val json = ApiClient.gson.toJson(listOf(Machine("m1", "Office", listOf(MachineAddress("m1", "http://h", "C", true)), null, "S", "low", true)))
         val m = decodeMachines(json)!!.single()
         assertEquals(true, m.needsPairing)
+        assertEquals("C", m.clientId)
         assertEquals("low", m.liveQuality)
         assertEquals(true, m.liveWebSocket)
     }

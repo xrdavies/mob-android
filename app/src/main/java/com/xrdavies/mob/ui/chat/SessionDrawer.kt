@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.xrdavies.mob.data.CLOSE_DESKTOP_WARNING
 import com.xrdavies.mob.data.DESKTOP_CLOSES
 import com.xrdavies.mob.data.DesktopInfo
+import com.xrdavies.mob.data.Machine
 import com.xrdavies.mob.data.Session
 import com.xrdavies.mob.data.Status
 import com.xrdavies.mob.data.sessionDesktops
@@ -279,7 +280,9 @@ private fun MachineSwitcher(appState: AppState, onManageMachines: () -> Unit) {
                         Spacer(Modifier.width(6.dp))
                     }
                     Text(
-                        active?.mobdUrl ?: "Add one in Settings", style = MaterialTheme.typography.bodySmall,
+                        active?.let { m -> m.address?.let { if (m.addresses.size > 1) "via ${m.label(it)} · ${Machine.host(it.url)}" else it.url } }
+                            ?: "Add one in Settings",
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                 }
@@ -297,6 +300,11 @@ private fun MachineSwitcher(appState: AppState, onManageMachines: () -> Unit) {
                         appState.selectMachine(m.id)
                     },
                 )
+            }
+            if (active != null && active.addresses.size > 1) {
+                HorizontalDivider()
+                Text("${active.name} route", Modifier.padding(horizontal = 12.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                com.xrdavies.mob.ui.settings.RouteMenuItems(appState, active) { open = false }
             }
             if (machines.isNotEmpty()) HorizontalDivider()
             DropdownMenuItem(
