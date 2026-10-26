@@ -122,7 +122,7 @@ fun ChatScreen(appState: AppState, onOpenDrawer: (() -> Unit)?, onOpenSettings: 
                                     modifier = if (route != null) Modifier.clickable { routeMenu = true } else Modifier,
                                 )
                                 if (machine != null && route != null) DropdownMenu(routeMenu, onDismissRequest = { routeMenu = false }) {
-                                    RouteMenuItems(appState, machine) { routeMenu = false }
+                                    RouteMenuItems(appState, machine, short = true) { routeMenu = false }
                                 }
                             }
                             val waiting = queued[machine?.id] ?: 0

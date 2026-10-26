@@ -1,5 +1,7 @@
 package com.xrdavies.mob.ui.settings
 
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -71,11 +73,18 @@ fun RouteLine(appState: AppState, m: Machine) {
 
 /** "Use LAN ✓" / "Use Remote" for a machine with more than one address. */
 @Composable
-fun RouteMenuItems(appState: AppState, m: Machine, onDone: () -> Unit) {
+fun RouteMenuItems(appState: AppState, m: Machine, short: Boolean = false, onDone: () -> Unit) {
     if (m.addresses.size < 2) return
     m.addresses.forEach { a ->
         DropdownMenuItem(
-            text = { Text("Use ${m.label(a)}") },
+            // In a route list (`short`): "LAN" with the host under it; elsewhere "Use LAN".
+            text = {
+                if (short) Column {
+                    Text(m.label(a))
+                    Text(Machine.host(a.url), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                } else Text("Use ${m.label(a)}")
+            },
             leadingIcon = { if (a.id == m.address?.id) Icon(Icons.Filled.Check, null) else Spacer(Modifier.size(24.dp)) },
             onClick = {
                 onDone()

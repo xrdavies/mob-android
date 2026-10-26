@@ -8,6 +8,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.Unarchive
@@ -289,11 +291,31 @@ private fun MachineSwitcher(appState: AppState, onManageMachines: () -> Unit) {
             }
             Icon(Icons.Filled.UnfoldMore, "Switch machine")
         }
-        DropdownMenu(open, onDismissRequest = { open = false }) {
+        // "Route: LAN ›" swaps the menu to the active machine's routes (Compose menus have no submenus).
+        var routes by remember { mutableStateOf(false) }
+        DropdownMenu(open, onDismissRequest = { open = false; routes = false }) {
             val queued by appState.queued.collectAsState()
+            if (routes && active != null) {
+                DropdownMenuItem(
+                    text = { Text("${active.name} route", style = MaterialTheme.typography.labelLarge) },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") },
+                    onClick = { routes = false },
+                )
+                HorizontalDivider()
+                com.xrdavies.mob.ui.settings.RouteMenuItems(appState, active, short = true) { open = false; routes = false }
+                return@DropdownMenu
+            }
             machines.forEach { m ->
                 DropdownMenuItem(
-                    text = { Text(m.name + (queued[m.id]?.takeIf { it > 0 }?.let { " · queue $it" } ?: "")) },
+                    // The route belongs to the machine: a subtitle, not an item of its own.
+                    text = {
+                        Column {
+                            Text(m.name + (queued[m.id]?.takeIf { it > 0 }?.let { " · queue $it" } ?: ""))
+                            m.address?.takeIf { m.addresses.size > 1 }?.let {
+                                Text("via ${m.label(it)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    },
                     leadingIcon = { if (m.id == activeId) Icon(Icons.Filled.Check, null) else Spacer(Modifier.size(24.dp)) },
                     onClick = {
                         open = false
@@ -303,8 +325,12 @@ private fun MachineSwitcher(appState: AppState, onManageMachines: () -> Unit) {
             }
             if (active != null && active.addresses.size > 1) {
                 HorizontalDivider()
-                Text("${active.name} route", Modifier.padding(horizontal = 12.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                com.xrdavies.mob.ui.settings.RouteMenuItems(appState, active) { open = false }
+                DropdownMenuItem(
+                    text = { Text("Route: ${active.address?.let { active.label(it) }.orEmpty()}") },
+                    leadingIcon = { Icon(Icons.Filled.Route, null) },
+                    trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
+                    onClick = { routes = true },
+                )
             }
             if (machines.isNotEmpty()) HorizontalDivider()
             DropdownMenuItem(
