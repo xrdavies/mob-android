@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xrdavies.mob.data.Status
+import com.xrdavies.mob.data.TurnSettings
 import com.xrdavies.mob.data.defaultLabel
 import com.xrdavies.mob.data.readable
 import com.xrdavies.mob.data.uploadImage
@@ -82,8 +83,20 @@ fun Composer(appState: AppState) {
     val models = runner?.models ?: h?.models.orEmpty()
     val efforts = runner?.efforts ?: h?.efforts.orEmpty()
     val canOptions = h?.supports("taskOptions") == true
-    val model = prefs["turn.$runnerKey.model"]?.takeIf { models.isEmpty() || it in models }
-    val effort = prefs["turn.$runnerKey.effort"]?.takeIf { it in efforts }
+    // An open chat shows and changes its conversation's model and effort (shared by every
+    // device); a new chat keeps a draft on this device until it exists.
+    val hasSettings = h?.supports("settings") == true
+    val shown = TurnSettings.shown(hasSettings, if (currentId != null) detail?.session else null,
+        prefs["turn.$runnerKey.model"], prefs["turn.$runnerKey.effort"])
+    val model = shown.model.ifEmpty { null }
+    val effort = shown.effort.ifEmpty { null }
+    fun choose(key: String, value: String?) {
+        if (hasSettings && currentId != null) {
+            if (key == "model") chat.setTurnSettings(model = value.orEmpty()) else chat.setTurnSettings(effort = value.orEmpty())
+        } else {
+            appState.setTurnPref("$runnerKey.$key", value)
+        }
+    }
     val canUpload = h?.supports("uploads") == true && runner?.images != false
 
     val task = detail?.current
@@ -118,14 +131,18 @@ fun Composer(appState: AppState) {
             return
         }
         if (busy || uploading || sending) return
+        val newChat = currentId == null
+        val (sentModel, sentEffort) = TurnSettings.sent(hasSettings, newChat, shown, efforts)
         chat.send(
             prompt,
-            runner = if (currentId == null) runner?.name else null,
-            model = model.takeIf { canOptions },
-            effort = effort.takeIf { canOptions },
+            runner = if (newChat) runner?.name else null,
+            model = sentModel.takeIf { canOptions },
+            effort = sentEffort.takeIf { canOptions },
             attachments = ready,
         ) { ok ->
             if (!ok) return@send
+            // The conversation has its settings now; the next new chat starts from the defaults.
+            if (newChat && hasSettings) appState.clearTurnPrefs(m, runnerKey)
             if (text.trim() == prompt) text = ""
             attachments.clear()
         }
@@ -176,13 +193,13 @@ fun Composer(appState: AppState) {
                     val defaultModel = defaultLabel("model", runner?.defaultModel)
                     val defaultEffort = defaultLabel("effort", runner?.defaultEffort)
                     if (canOptions && (models.isNotEmpty() || runner?.defaultModel != null)) {
-                        OptionChip(Icons.Filled.Memory, model ?: defaultModel, defaultModel, models.map { it to it }, model) {
-                            appState.setTurnPref("$runnerKey.model", it)
+                        OptionChip(Icons.Filled.Memory, model ?: defaultModel, defaultModel, TurnSettings.menuModels(models, shown.model).map { it to it }, model) {
+                            choose("model", it)
                         }
                     }
                     if (canOptions && efforts.isNotEmpty()) {
                         OptionChip(Icons.Filled.Psychology, effort ?: defaultEffort, defaultEffort, efforts.map { it to it }, effort) {
-                            appState.setTurnPref("$runnerKey.effort", it)
+                            choose("effort", it)
                         }
                     }
                 }

@@ -43,6 +43,8 @@ fun SettingsScreen(appState: AppState) {
     var deleting by remember { mutableStateOf<Machine?>(null) }
     var showLog by remember { mutableStateOf(false) }
     var showLicenses by remember { mutableStateOf(false) }
+    var showAgents by remember { mutableStateOf(false) }
+    val health by appState.health.collectAsState()
 
     Scaffold(
         topBar = {
@@ -92,6 +94,15 @@ fun SettingsScreen(appState: AppState) {
             }
 
             NotificationsCard(appState)
+
+            val active = machines.firstOrNull { it.id == activeId }
+            if (active != null && health?.supports("settings") == true) {
+                SettingsCard("Agents on ${active.name}") {
+                    Text("Default agent, models, default model and effort, and permissions, for every device.", style = MaterialTheme.typography.bodyMedium)
+                    OutlinedButton(onClick = { showAgents = true }) { Text("Agent settings") }
+                }
+            }
+            if (showAgents) AgentSettingsDialog(appState) { showAgents = false }
 
             SettingsCard("Log") {
                 Text("Connections, event streams, live view and errors, for troubleshooting.", style = MaterialTheme.typography.bodyMedium)

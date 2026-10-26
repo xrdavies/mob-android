@@ -48,6 +48,7 @@ data class Runner(
     /** What the agent uses when a turn picks none; null when unset there or from an older mobd. */
     val defaultModel: String? = null,
     val defaultEffort: String? = null,
+    val permissions: String? = null,
 ) {
     val title get() = label ?: name
 }
@@ -113,6 +114,9 @@ data class Session(
     val updatedAt: String?,
     // Only GET /sessions/{id} includes messages; lists and events omit them.
     val messages: List<Message>?,
+    /** The conversation's model and effort (mobd with "settings"); null = machine default. */
+    val model: String? = null,
+    val effort: String? = null,
 ) {
     val displayTitle get() = title?.takeIf { it.isNotBlank() } ?: "New chat"
 }
@@ -192,7 +196,11 @@ data class CreateTaskRequest(
     val attachments: List<String>? = null,
 )
 
-data class PatchSessionRequest(val title: String? = null, val pinned: Boolean? = null, val archived: Boolean? = null)
+/** model / effort set the conversation's settings; "" returns to the machine default. */
+data class PatchSessionRequest(
+    val title: String? = null, val pinned: Boolean? = null, val archived: Boolean? = null,
+    val model: String? = null, val effort: String? = null,
+)
 
 data class AnswerQuestionRequest(val answer: String? = null, val approved: Boolean? = null)
 

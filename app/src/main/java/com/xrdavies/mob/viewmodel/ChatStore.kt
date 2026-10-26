@@ -359,6 +359,7 @@ class ChatStore(
             session = d.session.copy(
                 title = s.title, status = s.status, waiting = s.waiting, pinned = s.pinned,
                 archived = s.archived, activeTaskId = s.activeTaskId, updatedAt = s.updatedAt,
+                model = s.model, effort = s.effort,
             )
         )
         // A new turn (from another device) or a status change the turn stream did not deliver.
@@ -439,6 +440,15 @@ class ChatStore(
     fun answer(q: Question, answer: String?, approved: Boolean?) = launch { client, _ ->
         client.api.answerQuestion(q.taskId, q.id, AnswerQuestionRequest(answer?.takeIf { it.isNotBlank() }, approved)).orThrow()
         reload()
+    }
+
+    /** Sets the open conversation's model or effort ("" = machine default), for every device. */
+    fun setTurnSettings(model: String? = null, effort: String? = null) {
+        val id = _currentId.value ?: return
+        launch { client, gen ->
+            val s = client.api.patchSession(id, PatchSessionRequest(model = model, effort = effort))
+            if (gen == generation) applySession(s)
+        }
     }
 
     fun rename(s: Session, title: String) = patch(s, PatchSessionRequest(title = title))

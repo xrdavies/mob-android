@@ -31,6 +31,8 @@ interface MachineEvents {
     fun onUnauthorized(m: Machine, token: String?)
     /** A conversation desktop, memory or disk change (Linux mobd with `sessionDesktops`). */
     fun onDesktopEvent(m: Machine, e: DesktopEvent) {}
+    /** The machine settings changed on some device. */
+    fun onSettings(m: Machine) {}
 }
 
 /**
@@ -66,6 +68,7 @@ class MachineWatcher(val machine: Machine, val client: ApiClient, scope: Corouti
                         "queue" -> runCatching { ApiClient.gson.fromJson(e.data, Queue::class.java) }.getOrNull()?.let {
                             events.onQueue(machine, it.queued.orEmpty().size)
                         }
+                        "settings" -> events.onSettings(machine)
                         "desktop", "memory", "disk" -> parseDesktopEvent(e.type, e.data)?.let { events.onDesktopEvent(machine, it) }
                         "reset" -> {
                             Log.add("${machine.name}: events reset, refetching")

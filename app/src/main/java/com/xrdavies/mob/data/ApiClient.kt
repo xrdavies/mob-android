@@ -52,6 +52,13 @@ interface MobApi {
     @PATCH("sessions/{id}")
     suspend fun patchSession(@Path("id") id: String, @Body request: PatchSessionRequest): Session
 
+    @GET("settings")
+    suspend fun settings(): SettingsInfo
+
+    /** Replaces the machine settings; 409 code "settings_changed" when another device saved first. */
+    @PUT("settings")
+    suspend fun saveSettings(@Body settings: MachineSettings): SettingsInfo
+
     @DELETE("sessions/{id}")
     suspend fun deleteSession(@Path("id") id: String): Response<Unit>
 

@@ -399,18 +399,32 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     }
 
     /**
-     * Composer choices, remembered per machine ("turn.<machine>.runner") and per machine and
-     * runner ("turn.<machine>/<runner>.model" / ".effort"), like the desktop app.
+     * A new chat's choices on this device until the chat exists ("turn.<machine>.runner",
+     * "turn.<machine>/<runner>.model" / ".effort"). In memory only: model and effort are mobd's
+     * machine and conversation settings now, so the old saved choices are removed.
      */
-    private val _turnPrefs = MutableStateFlow(
-        prefs.all.filterKeys { it.startsWith("turn.") }.mapValues { it.value.toString() }
-    )
+    private val _turnPrefs = MutableStateFlow<Map<String, String>>(emptyMap()).also {
+        prefs.edit().apply { prefs.all.keys.filter { k -> k.startsWith("turn.") }.forEach(::remove) }.apply()
+    }
     val turnPrefs: StateFlow<Map<String, String>> = _turnPrefs
 
     fun setTurnPref(key: String, value: String?) {
         val k = "turn.$key"
         _turnPrefs.value = if (value.isNullOrEmpty()) _turnPrefs.value - k else _turnPrefs.value + (k to value)
-        prefs.edit().apply { if (value.isNullOrEmpty()) remove(k) else putString(k, value) }.apply()
+    }
+
+    fun clearTurnPrefs(machine: String, runnerKey: String) {
+        _turnPrefs.value = _turnPrefs.value - listOf("turn.$machine.runner", "turn.$runnerKey.model", "turn.$runnerKey.effort")
+    }
+
+    /** Goes up when another device changes the machine settings, so open settings reload. */
+    private val _settingsTick = MutableStateFlow(0)
+    val settingsTick: StateFlow<Int> = _settingsTick
+
+    override fun onSettings(m: Machine) {
+        if (m.id != _activeMachineId.value) return
+        _settingsTick.value++
+        checkHealth()
     }
 
     fun newMachineId(): String = UUID.randomUUID().toString()
