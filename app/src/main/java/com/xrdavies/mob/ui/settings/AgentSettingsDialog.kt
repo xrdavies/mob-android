@@ -7,6 +7,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -47,6 +48,8 @@ fun AgentSettingsDialog(appState: AppState, onClose: () -> Unit) {
     var edit by remember { mutableStateOf<MachineSettings?>(null) }
     var message by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     var saving by remember { mutableStateOf(false) }
+    // Shown on the button for a moment after a save succeeds.
+    var justSaved by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<List<String>?>(null) }
     val adding = remember { mutableStateMapOf<String, String>() }
     fun label(name: String) = info?.agents?.get(name)?.label ?: name
@@ -77,7 +80,12 @@ fun AgentSettingsDialog(appState: AppState, onClose: () -> Unit) {
                 val saved = appState.apiClient.api.saveSettings(e)
                 info = saved
                 edit = saved.settings
-                message = "Saved. New chats use these defaults; open chats keep theirs." to false
+                message = null
+                justSaved = true
+                launch {
+                    kotlinx.coroutines.delay(2000)
+                    justSaved = false
+                }
                 appState.checkHealth()
             } catch (err: Exception) {
                 if (err.code() == "settings_changed") {
@@ -110,7 +118,22 @@ fun AgentSettingsDialog(appState: AppState, onClose: () -> Unit) {
                     title = { Text("Agents") },
                     navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                     actions = {
-                        TextButton(onClick = { save(false) }, enabled = edit != null && edit != info?.settings && !saving) { Text("Save") }
+                        // The button itself shows the save: Saving…, then ✓ Saved, then greyed out until a change.
+                        TextButton(onClick = { save(false) }, enabled = edit != null && edit != info?.settings && !saving && !justSaved) {
+                            when {
+                                saving -> {
+                                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Saving…")
+                                }
+                                justSaved -> {
+                                    Icon(Icons.Filled.Check, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Saved", color = MaterialTheme.colorScheme.primary)
+                                }
+                                else -> Text("Save")
+                            }
+                        }
                     },
                 )
             }
