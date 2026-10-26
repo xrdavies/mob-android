@@ -31,6 +31,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.xrdavies.mob.data.MachineAddress
 import com.xrdavies.mob.data.Machine
 import com.xrdavies.mob.viewmodel.AppState
 
@@ -270,6 +271,24 @@ private fun MachineDialog(
     var name by remember { mutableStateOf(initial.name) }
     var quality by remember { mutableStateOf(LiveQuality.of(initial.liveQuality)) }
     val labels = remember { mutableStateMapOf<String, String>().apply { initial.addresses.forEach { put(it.id, it.label.orEmpty()) } } }
+    // The address being renamed, and the name typed so far.
+    var renaming by remember { mutableStateOf<MachineAddress?>(null) }
+    var newLabel by remember { mutableStateOf("") }
+    renaming?.let { r ->
+        AlertDialog(
+            onDismissRequest = { renaming = null },
+            title = { Text("Rename address") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(r.url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    OutlinedTextField(newLabel, { newLabel = it }, singleLine = true, placeholder = { Text(r.kind.title) },
+                        supportingText = { Text("Leave empty to show ${r.kind.title}.") }, modifier = Modifier.fillMaxWidth())
+                }
+            },
+            confirmButton = { TextButton(onClick = { labels[r.id] = newLabel.trim(); renaming = null }) { Text("Rename") } },
+            dismissButton = { TextButton(onClick = { renaming = null }) { Text("Cancel") } },
+        )
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(initial.name) },
@@ -281,14 +300,12 @@ private fun MachineDialog(
                 initial.addresses.forEach { a ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            OutlinedTextField(
-                                labels[a.id].orEmpty(), { labels[a.id] = it }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-                                label = { Text(if (a.id == initial.address?.id) "${a.kind.title} · in use" else a.kind.title) },
-                                placeholder = { Text(a.kind.title) },
-                            )
+                            val shown = labels[a.id]?.trim()?.takeIf { it.isNotEmpty() } ?: initial.label(a.copy(label = null))
+                            Text(if (a.id == initial.address?.id) "$shown · in use" else shown, style = MaterialTheme.typography.bodyLarge)
                             Text(a.url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (a.needsPairing == true) Text("Needs pairing", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
                         }
+                        IconButton(onClick = { newLabel = labels[a.id].orEmpty(); renaming = a }) { Icon(Icons.Filled.Edit, "Rename ${a.url}") }
                         if (initial.addresses.size > 1) IconButton(onClick = { onRemoveAddress(a.id) }) { Icon(Icons.Filled.Delete, "Remove ${a.url}") }
                     }
                 }
