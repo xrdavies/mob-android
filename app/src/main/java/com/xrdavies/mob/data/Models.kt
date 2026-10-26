@@ -45,9 +45,15 @@ data class Runner(
     val available: Boolean?,
     val detail: String?,
     val default: Boolean?,
+    /** What the agent uses when a turn picks none; null when unset there or from an older mobd. */
+    val defaultModel: String? = null,
+    val defaultEffort: String? = null,
 ) {
     val title get() = label ?: name
 }
+
+/** The menu entry for "no choice": names the agent's default when mobd reports it. */
+fun defaultLabel(what: String, value: String?): String = if (value.isNullOrEmpty()) "Default $what" else "Default ($value)"
 
 object Status {
     const val QUEUED = "queued"

@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xrdavies.mob.data.Status
+import com.xrdavies.mob.data.defaultLabel
 import com.xrdavies.mob.data.readable
 import com.xrdavies.mob.data.uploadImage
 import com.xrdavies.mob.ui.common.duration
@@ -172,13 +173,15 @@ fun Composer(appState: AppState) {
                     } else if (currentId != null && runner != null && h?.runners.orEmpty().size > 1) {
                         Text(runner.title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 6.dp))
                     }
-                    if (canOptions && models.isNotEmpty()) {
-                        OptionChip(Icons.Filled.Memory, model ?: "Model", "Default model", models.map { it to it }, model) {
+                    val defaultModel = defaultLabel("model", runner?.defaultModel)
+                    val defaultEffort = defaultLabel("effort", runner?.defaultEffort)
+                    if (canOptions && (models.isNotEmpty() || runner?.defaultModel != null)) {
+                        OptionChip(Icons.Filled.Memory, model ?: defaultModel, defaultModel, models.map { it to it }, model) {
                             appState.setTurnPref("$runnerKey.model", it)
                         }
                     }
                     if (canOptions && efforts.isNotEmpty()) {
-                        OptionChip(Icons.Filled.Psychology, effort ?: "Effort", "Default effort", efforts.map { it to it }, effort) {
+                        OptionChip(Icons.Filled.Psychology, effort ?: defaultEffort, defaultEffort, efforts.map { it to it }, effort) {
                             appState.setTurnPref("$runnerKey.effort", it)
                         }
                     }
