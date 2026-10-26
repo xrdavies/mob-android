@@ -322,7 +322,7 @@ private fun TurnFooter(task: Task, appState: AppState, last: Boolean) {
                     Text("Turn failed", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Medium)
                     task.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
-                if (last) TextButton(onClick = { chat.send(task.prompt.orEmpty(), model = task.model, effort = task.effort, attachments = task.attachments) }) {
+                if (last) TextButton(onClick = { chat.send(task.prompt.orEmpty(), attachments = task.attachments) }) {
                     Icon(Icons.Filled.Refresh, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("Retry")
