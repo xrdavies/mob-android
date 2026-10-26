@@ -43,8 +43,7 @@ fun SettingsScreen(appState: AppState) {
     var deleting by remember { mutableStateOf<Machine?>(null) }
     var showLog by remember { mutableStateOf(false) }
     var showLicenses by remember { mutableStateOf(false) }
-    var showAgents by remember { mutableStateOf(false) }
-    val health by appState.health.collectAsState()
+    var agentsOf by remember { mutableStateOf<Machine?>(null) }
 
     Scaffold(
         topBar = {
@@ -95,14 +94,6 @@ fun SettingsScreen(appState: AppState) {
 
             NotificationsCard(appState)
 
-            val active = machines.firstOrNull { it.id == activeId }
-            if (active != null && health != null) {
-                SettingsCard("Agents on ${active.name}") {
-                    Text("Default agent, models, default model and effort, and permissions, for every device.", style = MaterialTheme.typography.bodyMedium)
-                    OutlinedButton(onClick = { showAgents = true }) { Text("Agent settings") }
-                }
-            }
-            if (showAgents) AgentSettingsDialog(appState) { showAgents = false }
 
             SettingsCard("Log") {
                 Text("Connections, event streams, live view and errors, for troubleshooting.", style = MaterialTheme.typography.bodyMedium)
@@ -134,9 +125,11 @@ fun SettingsScreen(appState: AppState) {
                 pairing = m.id
             },
             onQuality = { appState.setLiveQuality(m.id, it) },
+            onAgents = { agentsOf = m },
             onDismiss = { editing = null },
         )
     }
+    agentsOf?.let { m -> AgentSettingsDialog(appState, m) { agentsOf = null } }
     pairing?.let { id ->
         PairDialog(appState, machines.firstOrNull { it.id == id }, onDismiss = { pairing = null })
     }
@@ -253,15 +246,17 @@ private fun MachineDialog(
     onSave: (Machine) -> Unit,
     onPairAgain: () -> Unit,
     onQuality: (LiveQuality) -> Unit,
+    onAgents: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     var name by remember { mutableStateOf(initial.name) }
     var quality by remember { mutableStateOf(LiveQuality.of(initial.liveQuality)) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit machine") },
+        title = { Text(initial.name) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Connection", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 OutlinedTextField(name, { name = it }, label = { Text("Name") }, placeholder = { Text("Office Mac") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 // The address comes from pairing; a new one needs a new link.
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -271,6 +266,10 @@ private fun MachineDialog(
                     }
                     TextButton(onClick = onPairAgain) { Text("Pair again") }
                 }
+                Text("Agents", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                Text("Default agent, models, default model and effort, and permissions on this machine, shared by every device.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedButton(onClick = onAgents) { Text("Agent settings") }
                 // Applies at once (an open live view reconnects), like the switch in the live view.
                 Text("Live view quality", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {

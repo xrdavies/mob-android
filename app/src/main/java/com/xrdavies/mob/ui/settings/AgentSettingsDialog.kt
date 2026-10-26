@@ -13,6 +13,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -21,6 +23,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.xrdavies.mob.data.AgentSettings
 import com.xrdavies.mob.data.ApiClient
 import com.xrdavies.mob.data.ErrorCodeBody
+import com.xrdavies.mob.data.Machine
 import com.xrdavies.mob.data.MachineSettings
 import com.xrdavies.mob.data.SettingsInfo
 import com.xrdavies.mob.data.TurnSettings
@@ -41,8 +44,13 @@ private fun Throwable.code(): String? = (this as? HttpException)?.response()?.er
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AgentSettingsDialog(appState: AppState, onClose: () -> Unit) {
+fun AgentSettingsDialog(appState: AppState, machine: Machine, focus: String? = null, onClose: () -> Unit) {
     val tick by appState.settingsTick.collectAsState()
+    // Any paired machine, not only the active one.
+    val client = remember(machine) { appState.clientFor(machine) }
+    val scroll = rememberScrollState()
+    // Where each agent's card starts, to scroll to the one the chat's model menu opened.
+    val cardTop = remember { mutableStateMapOf<String, Int>() }
     val scope = rememberCoroutineScope()
     var info by remember { mutableStateOf<SettingsInfo?>(null) }
     var edit by remember { mutableStateOf<MachineSettings?>(null) }
@@ -56,15 +64,21 @@ fun AgentSettingsDialog(appState: AppState, onClose: () -> Unit) {
 
     suspend fun load() {
         try {
-            val v = appState.apiClient.api.settings()
+            val v = client.api.settings()
             info = v
             // Keep local edits unless another device saved meanwhile.
             if (edit == null || edit?.rev != v.settings.rev) edit = v.settings
+        } catch (e: java.io.IOException) {
+            message = "Connect to ${machine.name} to change its agents. (${e.readable()})" to true
         } catch (e: Exception) {
             message = e.readable() to true
         }
     }
-    LaunchedEffect(tick) { load() }
+    LaunchedEffect(tick) { if (machine.needsPairing != true) load() }
+    LaunchedEffect(info != null, cardTop[focus]) {
+        val y = focus?.let { cardTop[it] } ?: return@LaunchedEffect
+        if (info != null) scroll.animateScrollTo(y)
+    }
 
     fun save(confirmed: Boolean) {
         val v = info ?: return
@@ -77,7 +91,7 @@ fun AgentSettingsDialog(appState: AppState, onClose: () -> Unit) {
         saving = true
         scope.launch {
             try {
-                val saved = appState.apiClient.api.saveSettings(e)
+                val saved = client.api.saveSettings(e)
                 info = saved
                 edit = saved.settings
                 message = null
@@ -105,7 +119,7 @@ fun AgentSettingsDialog(appState: AppState, onClose: () -> Unit) {
         AlertDialog(
             onDismissRequest = { confirm = null },
             title = { Text("Run without asking?") },
-            text = { Text("${agents.joinToString { label(it) }} will run commands and edit files on ${appState.activeMachine?.name ?: "the office Mac"} without asking you first.") },
+            text = { Text("${agents.joinToString { label(it) }} will run commands and edit files on ${machine.name} without asking you first.") },
             confirmButton = { TextButton(onClick = { confirm = null; save(true) }) { Text("Allow and save") } },
             dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
         )
@@ -115,7 +129,7 @@ fun AgentSettingsDialog(appState: AppState, onClose: () -> Unit) {
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("Agents") },
+                    title = { Text("${machine.name} · Agents") },
                     navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                     actions = {
                         // The button itself shows the save: Saving…, then ✓ Saved, then greyed out until a change.
@@ -141,11 +155,15 @@ fun AgentSettingsDialog(appState: AppState, onClose: () -> Unit) {
             val v = info
             val e = edit
             Column(
-                Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
+                Modifier.fillMaxSize().padding(padding).verticalScroll(scroll).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 message?.let { (text, error) ->
                     Text(text, color = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
+                }
+                if (machine.needsPairing == true) {
+                    Text("Pair ${machine.name} again to change its agents.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    return@Column
                 }
                 if (v == null || e == null) {
                     if (message == null) CircularProgressIndicator()
@@ -167,7 +185,7 @@ fun AgentSettingsDialog(appState: AppState, onClose: () -> Unit) {
                         edit = TurnSettings.with(e, name, change)
                         message = null
                     }
-                    ElevatedCard(Modifier.fillMaxWidth()) {
+                    ElevatedCard(Modifier.fillMaxWidth().onGloballyPositioned { cardTop[name] = it.positionInParent().y.toInt() }) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text(label(name), style = MaterialTheme.typography.titleMedium)
                             Text(

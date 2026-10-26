@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xrdavies.mob.data.Status
+import com.xrdavies.mob.ui.settings.AgentSettingsDialog
 import com.xrdavies.mob.data.TurnSettings
 import com.xrdavies.mob.data.defaultLabel
 import com.xrdavies.mob.data.readable
@@ -63,6 +64,9 @@ fun Composer(appState: AppState) {
     val health by appState.health.collectAsState()
     val connected by appState.isConnected.collectAsState()
     val prefs by appState.turnPrefs.collectAsState()
+    // "Edit models…": this machine's agent settings, at the chat's agent.
+    var editingAgent by remember { mutableStateOf<String?>(null) }
+    editingAgent?.let { agent -> appState.activeMachine?.let { m -> AgentSettingsDialog(appState, m, agent) { editingAgent = null } } }
     val machineId by appState.activeMachineId.collectAsState()
     val detail by chat.detail.collectAsState()
     val currentId by chat.currentId.collectAsState()
@@ -193,8 +197,9 @@ fun Composer(appState: AppState) {
                     }
                     val defaultModel = defaultLabel("model", runner?.defaultModel)
                     val defaultEffort = defaultLabel("effort", runner?.defaultEffort)
-                    if (canOptions && (models.isNotEmpty() || runner?.defaultModel != null)) {
-                        OptionChip(Icons.Filled.Memory, model ?: defaultModel, defaultModel, TurnSettings.menuModels(models, shown.model).map { it to it }, model) {
+                    if (canOptions && runner != null) {
+                        OptionChip(Icons.Filled.Memory, model ?: defaultModel, defaultModel, TurnSettings.menuModels(models, shown.model).map { it to it }, model,
+                            onEdit = { editingAgent = runner.name }) {
                             choose("model", it)
                         }
                     }
@@ -238,6 +243,8 @@ private fun OptionChip(
     defaultLabel: String,
     options: List<Pair<String, String>>,
     value: String?,
+    /** Adds an "Edit models…" entry that opens the machine's agent settings. */
+    onEdit: (() -> Unit)? = null,
     onChange: (String?) -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
@@ -266,6 +273,17 @@ private fun OptionChip(
                     onClick = {
                         open = false
                         onChange(v)
+                    },
+                )
+            }
+            if (onEdit != null) {
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text("Edit models…") },
+                    leadingIcon = { Icon(Icons.Filled.Edit, null) },
+                    onClick = {
+                        open = false
+                        onEdit()
                     },
                 )
             }

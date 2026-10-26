@@ -172,7 +172,7 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     private fun usable(m: Machine?): Boolean = m != null && m.needsPairing != true && token(m) != null
 
     /** A client for [m] that signs requests with its token; never another machine's. */
-    private fun clientFor(m: Machine?): ApiClient = ApiClient(m?.mobdUrl.orEmpty(), m?.let(::token))
+    fun clientFor(m: Machine?): ApiClient = ApiClient(m?.mobdUrl.orEmpty(), m?.let(::token))
 
     /** Points the API client, chats, health and live view at the active machine. */
     private fun activate() {
