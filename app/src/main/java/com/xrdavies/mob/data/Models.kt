@@ -10,8 +10,6 @@ data class Health(
     val features: List<String>?,
     val runners: List<Runner>?,
     val runner: String?,
-    val models: List<String>?,
-    val efforts: List<String>?,
     val checks: Map<String, Check>?,
 ) {
     fun supports(feature: String) = features.orEmpty().contains(feature)
@@ -45,7 +43,7 @@ data class Runner(
     val available: Boolean?,
     val detail: String?,
     val default: Boolean?,
-    /** What the agent uses when a turn picks none; null when unset there or from an older mobd. */
+    /** The default settings.json names, else the agent's own; null when neither is set. */
     val defaultModel: String? = null,
     val defaultEffort: String? = null,
     val permissions: String? = null,

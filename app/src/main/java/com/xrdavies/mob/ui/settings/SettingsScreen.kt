@@ -96,7 +96,7 @@ fun SettingsScreen(appState: AppState) {
             NotificationsCard(appState)
 
             val active = machines.firstOrNull { it.id == activeId }
-            if (active != null && health?.supports("settings") == true) {
+            if (active != null && health != null) {
                 SettingsCard("Agents on ${active.name}") {
                     Text("Default agent, models, default model and effort, and permissions, for every device.", style = MaterialTheme.typography.bodyMedium)
                     OutlinedButton(onClick = { showAgents = true }) { Text("Agent settings") }

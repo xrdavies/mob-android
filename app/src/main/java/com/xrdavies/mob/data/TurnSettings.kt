@@ -1,43 +1,24 @@
 package com.xrdavies.mob.data
 
-// Machine settings (GET/PUT /settings) and which model and effort the message box shows and
-// sends (mobd docs/mobd-v3.md, "Machine and conversation settings"). "" means the default: the
-// machine's for a new chat, the conversation's otherwise.
+// settings.json (GET/PUT /settings) and which model and effort the message box shows and sends
+// (mobd docs/mobd-v3.md, "Settings"). "" means the default from settings.json; an empty default
+// sends none, so the agent's own applies.
 
-/** What the apps set for one agent; null or empty = not set here. */
+/** One agent's settings in settings.json. */
 data class AgentSettings(
-    val models: List<String>? = null,
-    val defaultModel: String? = null,
-    val defaultEffort: String? = null,
-    val permissions: String? = null,
-) {
-    val isEmpty get() = models.isNullOrEmpty() && defaultModel.isNullOrEmpty() && defaultEffort.isNullOrEmpty() && permissions.isNullOrEmpty()
+    val models: List<String> = emptyList(),
+    val defaultModel: String = "",
+    val defaultEffort: String = "",
+    val permissions: String = "bypass",
+)
+
+/** settings.json: the runtime settings of agents and conversations, shared by every device. */
+data class MachineSettings(val rev: Long, val defaultAgent: String, val agents: Map<String, AgentSettings>)
+
+/** GET /settings: the file, and per agent its label, efforts and own defaults. */
+data class SettingsInfo(val settings: MachineSettings, val agents: Map<String, AgentInfo>?) {
+    data class AgentInfo(val label: String?, val efforts: List<String>?, val agentDefaultModel: String?, val agentDefaultEffort: String?)
 }
-
-data class MachineSettings(val rev: Long, val defaultAgent: String? = null, val agents: Map<String, AgentSettings>? = null)
-
-/** What an agent uses now, and where each value comes from (app, config, agent, builtin). */
-data class EffectiveAgent(
-    val models: List<String>?,
-    val modelsFrom: String?,
-    val defaultModel: String?,
-    val defaultModelFrom: String?,
-    val defaultEffort: String?,
-    val defaultEffortFrom: String?,
-    val permissions: String?,
-    val permissionsFrom: String?,
-    val efforts: List<String>?,
-    /** What applies without the app settings: what clearing a value returns to. */
-    val fallback: EffectiveAgent? = null,
-)
-
-data class SettingsInfo(
-    val settings: MachineSettings,
-    val defaultAgent: String?,
-    val defaultAgentFrom: String?,
-    val fallbackDefaultAgent: String?,
-    val agents: Map<String, EffectiveAgent>?,
-)
 
 /** An error body's machine-readable reason. */
 data class ErrorCodeBody(val error: String?, val code: String?)
@@ -45,34 +26,18 @@ data class ErrorCodeBody(val error: String?, val code: String?)
 data class TurnChoice(val model: String = "", val effort: String = "")
 
 object TurnSettings {
-    /** With mobd settings an open chat shows its conversation's values; a new chat its draft. */
-    fun shown(settings: Boolean, session: Session?, draftModel: String?, draftEffort: String?): TurnChoice =
-        if (settings && session != null) TurnChoice(session.model.orEmpty(), session.effort.orEmpty())
+    /** What the menus show: an open chat its conversation's values, a new chat this device's draft. */
+    fun shown(session: Session?, draftModel: String?, draftEffort: String?): TurnChoice =
+        if (session != null) TurnChoice(session.model.orEmpty(), session.effort.orEmpty())
         else TurnChoice(draftModel.orEmpty(), draftEffort.orEmpty())
 
     /** The models offered: the agent's list, plus a value in use that is no longer listed. */
     fun menuModels(models: List<String>, current: String): List<String> =
         if (current.isNotEmpty() && current !in models) models + current else models
 
-    /** Only a new chat's draft is sent; an older mobd gets the choice on every turn. */
-    fun sent(settings: Boolean, newChat: Boolean, shown: TurnChoice, efforts: List<String>): Pair<String?, String?> =
-        if (settings && !newChat) null to null
-        else shown.model.ifEmpty { null } to shown.effort.takeIf { it in efforts }
-
-    /** Applies a change to one agent; empty values mean "not set here". */
-    fun with(s: MachineSettings, agent: String, change: (AgentSettings) -> AgentSettings): MachineSettings {
-        val a = change(s.agents?.get(agent) ?: AgentSettings()).let {
-            it.copy(
-                models = it.models?.takeIf { m -> m.isNotEmpty() },
-                defaultModel = it.defaultModel?.ifEmpty { null },
-                defaultEffort = it.defaultEffort?.ifEmpty { null },
-                permissions = it.permissions?.ifEmpty { null },
-            )
-        }
-        val agents = s.agents.orEmpty().toMutableMap()
-        if (a.isEmpty) agents.remove(agent) else agents[agent] = a
-        return s.copy(agents = agents)
-    }
+    /** Applies a change to one agent's settings. */
+    fun with(s: MachineSettings, agent: String, change: (AgentSettings) -> AgentSettings): MachineSettings =
+        s.copy(agents = s.agents + (agent to change(s.agents[agent] ?: AgentSettings())))
 
     private val modelName = Regex("^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 
@@ -83,18 +48,7 @@ object TurnSettings {
         return if (m in models) models else models + m
     }
 
-    /** Agents a save would let run without asking that ask today. */
-    fun newlyUnguarded(info: SettingsInfo, next: MachineSettings): List<String> =
-        info.agents.orEmpty().filter { (name, now) ->
-            val after = next.agents?.get(name)?.permissions ?: (now.fallback?.permissions ?: now.permissions)
-            now.permissions == "approve" && after == "bypass"
-        }.keys.sorted()
-
-    fun fromLabel(from: String?): String = when (from) {
-        "app" -> "set in Mob"
-        "config" -> "from mobd config"
-        "agent" -> "from the agent's own config"
-        "builtin", null -> "agent's built-in default"
-        else -> from
-    }
+    /** Agents a save would let run without asking that ask today (they need a confirmation). */
+    fun newlyUnguarded(before: MachineSettings, after: MachineSettings): List<String> =
+        before.agents.filter { (name, a) -> a.permissions == "approve" && after.agents[name]?.permissions == "bypass" }.keys.sorted()
 }

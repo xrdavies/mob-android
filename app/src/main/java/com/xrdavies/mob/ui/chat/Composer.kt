@@ -80,18 +80,17 @@ fun Composer(appState: AppState) {
     val picked = if (currentId != null) detail?.session?.runner else available.firstOrNull { it.name == prefs["turn.$m.runner"] }?.name
     val runner = h?.runner(picked)
     val runnerKey = "$m/${runner?.name ?: h?.runner.orEmpty()}"
-    val models = runner?.models ?: h?.models.orEmpty()
-    val efforts = runner?.efforts ?: h?.efforts.orEmpty()
+    val models = runner?.models.orEmpty()
+    val efforts = runner?.efforts.orEmpty()
     val canOptions = h?.supports("taskOptions") == true
     // An open chat shows and changes its conversation's model and effort (shared by every
     // device); a new chat keeps a draft on this device until it exists.
-    val hasSettings = h?.supports("settings") == true
-    val shown = TurnSettings.shown(hasSettings, if (currentId != null) detail?.session else null,
+    val shown = TurnSettings.shown(if (currentId != null) detail?.session else null,
         prefs["turn.$runnerKey.model"], prefs["turn.$runnerKey.effort"])
     val model = shown.model.ifEmpty { null }
     val effort = shown.effort.ifEmpty { null }
     fun choose(key: String, value: String?) {
-        if (hasSettings && currentId != null) {
+        if (currentId != null) {
             if (key == "model") chat.setTurnSettings(model = value.orEmpty()) else chat.setTurnSettings(effort = value.orEmpty())
         } else {
             appState.setTurnPref("$runnerKey.$key", value)
@@ -132,7 +131,9 @@ fun Composer(appState: AppState) {
         }
         if (busy || uploading || sending) return
         val newChat = currentId == null
-        val (sentModel, sentEffort) = TurnSettings.sent(hasSettings, newChat, shown, efforts)
+        // Only a new chat names them (they become its settings); later turns use the conversation's.
+        val sentModel = model.takeIf { newChat }
+        val sentEffort = effort.takeIf { newChat && it in efforts }
         chat.send(
             prompt,
             runner = if (newChat) runner?.name else null,
@@ -142,7 +143,7 @@ fun Composer(appState: AppState) {
         ) { ok ->
             if (!ok) return@send
             // The conversation has its settings now; the next new chat starts from the defaults.
-            if (newChat && hasSettings) appState.clearTurnPrefs(m, runnerKey)
+            if (newChat) appState.clearTurnPrefs(m, runnerKey)
             if (text.trim() == prompt) text = ""
             attachments.clear()
         }

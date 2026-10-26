@@ -9,10 +9,10 @@ import org.junit.Test
 class DesktopsTest {
     @Test
     fun healthSessionDesktops() {
-        val h = Health(true, listOf("sessionDesktops"), null, null, null, null, null)
+        val h = Health(true, listOf("sessionDesktops"), null, null, null)
         assertTrue(h.sessionDesktops)
-        assertFalse(Health(true, listOf("stream"), null, null, null, null, null).sessionDesktops)
-        assertFalse(Health(true, null, null, null, null, null, null).sessionDesktops)
+        assertFalse(Health(true, listOf("stream"), null, null, null).sessionDesktops)
+        assertFalse(Health(true, null, null, null, null).sessionDesktops)
     }
 
     @Test

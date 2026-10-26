@@ -42,7 +42,6 @@ private fun Throwable.code(): String? = (this as? HttpException)?.response()?.er
 @Composable
 fun AgentSettingsDialog(appState: AppState, onClose: () -> Unit) {
     val tick by appState.settingsTick.collectAsState()
-    val health by appState.health.collectAsState()
     val scope = rememberCoroutineScope()
     var info by remember { mutableStateOf<SettingsInfo?>(null) }
     var edit by remember { mutableStateOf<MachineSettings?>(null) }
@@ -50,7 +49,7 @@ fun AgentSettingsDialog(appState: AppState, onClose: () -> Unit) {
     var saving by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<List<String>?>(null) }
     val adding = remember { mutableStateMapOf<String, String>() }
-    fun label(name: String) = health?.runners?.firstOrNull { it.name == name }?.title ?: name
+    fun label(name: String) = info?.agents?.get(name)?.label ?: name
 
     suspend fun load() {
         try {
@@ -67,7 +66,7 @@ fun AgentSettingsDialog(appState: AppState, onClose: () -> Unit) {
     fun save(confirmed: Boolean) {
         val v = info ?: return
         val e = edit ?: return
-        val risky = TurnSettings.newlyUnguarded(v, e)
+        val risky = TurnSettings.newlyUnguarded(v.settings, e)
         if (risky.isNotEmpty() && !confirmed) {
             confirm = risky
             return
@@ -134,25 +133,22 @@ fun AgentSettingsDialog(appState: AppState, onClose: () -> Unit) {
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 val agents = v.agents.orEmpty().keys.sorted()
-                Choice(
-                    "Default agent", e.defaultAgent.orEmpty(),
-                    listOf("" to "${label(v.fallbackDefaultAgent ?: v.defaultAgent.orEmpty())} (${TurnSettings.fromLabel("config")})") + agents.map { it to label(it) },
-                ) { edit = e.copy(defaultAgent = it.ifEmpty { null }) }
+                Choice("Default agent", e.defaultAgent, agents.map { it to label(it) }) { edit = e.copy(defaultAgent = it) }
+                // An empty default sends none: the agent's own applies.
+                fun agentDefault(value: String?) = value?.let { "Agent's default ($it)" } ?: "Agent's default"
                 for (name in agents) {
-                    val now = v.agents!![name]!!
-                    val back = now.fallback ?: now
-                    val a = e.agents?.get(name) ?: AgentSettings()
-                    val models = a.models ?: back.models.orEmpty()
+                    val agent = v.agents!![name]!!
+                    val a = e.agents[name] ?: continue
+                    val models = a.models
                     fun update(change: (AgentSettings) -> AgentSettings) {
                         edit = TurnSettings.with(e, name, change)
                         message = null
                     }
-                    fun fallback(value: String?, from: String?) = value?.let { "$it (${TurnSettings.fromLabel(from)})" } ?: TurnSettings.fromLabel("builtin")
                     ElevatedCard(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text(label(name), style = MaterialTheme.typography.titleMedium)
                             Text(
-                                "Models offered" + if (a.models == null) " (${TurnSettings.fromLabel(back.modelsFrom)})" else "",
+                                "Models offered",
                                 style = MaterialTheme.typography.labelLarge,
                             )
                             if (models.isEmpty()) Text("None listed: chats use the default model.", style = MaterialTheme.typography.bodySmall)
@@ -160,7 +156,7 @@ fun AgentSettingsDialog(appState: AppState, onClose: () -> Unit) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(m, fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f))
                                     IconButton(onClick = {
-                                        update { it.copy(models = models - m, defaultModel = it.defaultModel.takeIf { d -> d != m }) }
+                                        update { it.copy(models = models - m, defaultModel = if (it.defaultModel == m) "" else it.defaultModel) }
                                     }) { Icon(Icons.Filled.Close, "Remove $m") }
                                 }
                             }
@@ -182,15 +178,15 @@ fun AgentSettingsDialog(appState: AppState, onClose: () -> Unit) {
                                 )
                                 OutlinedButton(onClick = { add() }, enabled = adding[name].orEmpty().isNotBlank()) { Text("Add") }
                             }
-                            Choice("Default model", a.defaultModel.orEmpty(), listOf("" to fallback(back.defaultModel, back.defaultModelFrom)) + models.map { it to it }) { v2 ->
+                            Choice("Default model", a.defaultModel, listOf("" to agentDefault(agent.agentDefaultModel)) + models.map { it to it }) { v2 ->
                                 update { it.copy(defaultModel = v2) }
                             }
-                            Choice("Default effort", a.defaultEffort.orEmpty(), listOf("" to fallback(back.defaultEffort, back.defaultEffortFrom)) + now.efforts.orEmpty().map { it to it }) { v2 ->
+                            Choice("Default effort", a.defaultEffort, listOf("" to agentDefault(agent.agentDefaultEffort)) + agent.efforts.orEmpty().map { it to it }) { v2 ->
                                 update { it.copy(defaultEffort = v2) }
                             }
                             Choice(
-                                "Permissions", a.permissions.orEmpty(),
-                                listOf("" to "${permissionLabel(back.permissions)} (${TurnSettings.fromLabel("config")})", "bypass" to permissionLabel("bypass"), "approve" to permissionLabel("approve")),
+                                "Permissions", a.permissions,
+                                listOf("bypass" to permissionLabel("bypass"), "approve" to permissionLabel("approve")),
                             ) { v2 -> update { it.copy(permissions = v2) } }
                         }
                     }
