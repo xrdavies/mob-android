@@ -73,7 +73,7 @@ data class PairResult(val serverId: String, val clientId: String, val token: Str
 
 private data class PairRequest(val invite: String, val name: String)
 
-private data class ErrorBody(val error: String?)
+private data class ErrorBody(val error: String?, val code: String? = null)
 
 private data class PairResponse(val serverId: String?, val clientId: String?, val token: String?)
 
@@ -99,14 +99,17 @@ suspend fun pair(link: PairLink, name: String, client: OkHttpClient): PairResult
     val request = Request.Builder().url("${link.origin}/pair").post(body).build()
     http.newCall(request).execute().use { r ->
         val text = r.body?.string().orEmpty()
-        val error = runCatching { ApiClient.gson.fromJson(text, ErrorBody::class.java)?.error }.getOrNull()
-        when (r.code) {
-            201 -> {}
-            401 -> throw PairException("This invite is invalid, expired or already used. Run mobd link on the office Mac again.")
-            400 -> throw PairException("The office Mac rejected the device name" + (error?.let { ": $it" } ?: ""))
-            503 -> throw PairException("The office Mac could not store the pairing. Check mobd on the office Mac and try again.")
-            404 -> throw PairException("This mobd does not support pairing. Update mobd on the office Mac.")
-            in 300..399 -> throw PairException("The office Mac answered with a redirect. Use the link exactly as mobd link printed it.")
+        val body = runCatching { ApiClient.gson.fromJson(text, ErrorBody::class.java) }.getOrNull()
+        val error = body?.error
+        // mobd answers 404 pairing_closed while no invitation is open (used, expired or closed).
+        val spent = r.code == 401 || (r.code == 404 && body?.code == "pairing_closed")
+        when {
+            r.code == 201 -> {}
+            spent -> throw PairException("This invite is invalid, expired or already used. Run mobd link on the office Mac again.")
+            r.code == 400 -> throw PairException("The office Mac rejected the device name" + (error?.let { ": $it" } ?: ""))
+            r.code == 503 -> throw PairException("The office Mac could not store the pairing. Check mobd on the office Mac and try again.")
+            r.code == 404 -> throw PairException("This mobd does not support pairing. Update mobd on the office Mac.")
+            r.code in 300..399 -> throw PairException("The office Mac answered with a redirect. Use the link exactly as mobd link printed it.")
             else -> throw PairException(error ?: "HTTP ${r.code}")
         }
         val res = runCatching { ApiClient.gson.fromJson(text, PairResponse::class.java) }.getOrNull()

@@ -117,6 +117,8 @@ class PairingTest {
         assertTrue(pairFails(400, """{"error":"invalid name"}""").contains("invalid name"))
         assertTrue(pairFails(503).contains("could not store"))
         assertTrue(pairFails(500, """{"error":"boom"}""").contains("boom"))
+        assertTrue(pairFails(404, """{"error":"pairing is off","code":"pairing_closed"}""").contains("mobd link"))
+        assertTrue(pairFails(404).contains("Update mobd"))
     }
 
     @Test
