@@ -24,6 +24,12 @@ class TurnSettingsTest {
                "agents":{"codex":{"label":"Codex","efforts":["low","high"],"agentDefaultEffort":"xhigh"}}}""", SettingsInfo::class.java,
         )
         assertEquals("xhigh", info.agents?.get("codex")?.agentDefaultEffort)
+        val listed = ApiClient.gson.fromJson(
+            """{"settings":{"rev":1,"defaultAgent":"codex","agents":{}},"installed":[{"name":"pi","label":"Pi","state":"missing","enabled":false,"install":"npm i -g pi"}]}""",
+            SettingsInfo::class.java,
+        )
+        assertEquals("Not installed", listed.installed?.first()?.stateLabel)
+        assertEquals("npm i -g pi", listed.installed?.first()?.install)
         val next = TurnSettings.with(info.settings, "codex") { it.copy(models = listOf("gpt-6-astra"), defaultEffort = "high") }
         assertEquals(AgentSettings(models = listOf("gpt-6-astra"), defaultEffort = "high", permissions = "approve"), next.agents["codex"])
         assertEquals(listOf("a", "b"), TurnSettings.addModel(listOf("a"), " b "))

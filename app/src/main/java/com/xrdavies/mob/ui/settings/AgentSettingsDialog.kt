@@ -15,6 +15,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -229,6 +231,31 @@ fun AgentSettingsDialog(appState: AppState, machine: Machine, focus: String? = n
                                 "Permissions", a.permissions,
                                 listOf("bypass" to permissionLabel("bypass"), "approve" to permissionLabel("approve")),
                             ) { v2 -> update { it.copy(permissions = v2) } }
+                        }
+                    }
+                }
+                val others = v.installed.orEmpty().filter { it.state != "ready" }
+                if (others.isNotEmpty()) {
+                    val clipboard = LocalClipboardManager.current
+                    ElevatedCard(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Other agents", style = MaterialTheme.typography.titleMedium)
+                            for (o in others) {
+                                Text(
+                                    "${o.label ?: o.name} · ${o.stateLabel}", style = MaterialTheme.typography.bodyMedium,
+                                    color = if (o.state == "error") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                                )
+                                o.detail?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                o.install?.let { cmd ->
+                                    TextButton(onClick = { clipboard.setText(AnnotatedString(cmd)) }, contentPadding = PaddingValues(0.dp)) {
+                                        Text("Copy: $cmd", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                                    }
+                                }
+                            }
+                            Text(
+                                "Install on ${machine.name}, add the agent to runners in mobd's config.json, then run mobd restart.",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 }

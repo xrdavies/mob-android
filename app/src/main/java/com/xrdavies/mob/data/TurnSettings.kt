@@ -16,8 +16,19 @@ data class AgentSettings(
 data class MachineSettings(val rev: Long, val defaultAgent: String, val agents: Map<String, AgentSettings>)
 
 /** GET /settings: the file, and per agent its label, efforts and own defaults. */
-data class SettingsInfo(val settings: MachineSettings, val agents: Map<String, AgentInfo>?) {
+data class SettingsInfo(val settings: MachineSettings, val agents: Map<String, AgentInfo>?, val installed: List<Installed>? = null) {
     data class AgentInfo(val label: String?, val efforts: List<String>?, val agentDefaultModel: String?, val agentDefaultEffort: String?)
+
+    /** Whether a supported agent is set up on the machine, enabled or not. */
+    data class Installed(val name: String, val label: String?, val state: String, val enabled: Boolean?, val detail: String?, val install: String?) {
+        /** ready, disabled (installed, not enabled), missing, error. */
+        val stateLabel get() = when (state) {
+            "disabled" -> "Installed, not enabled"
+            "missing" -> "Not installed"
+            "error" -> "Not working"
+            else -> state
+        }
+    }
 }
 
 /** An error body's machine-readable reason. */
