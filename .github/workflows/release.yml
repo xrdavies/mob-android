@@ -40,8 +40,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      # The runner has the Android SDK (ANDROID_HOME); Gradle installs a missing platform itself.
+      # setup-android 3.2.2 fails on it (it asks for the removed "tools" package).
       # Third-party actions run with the signing key in this job: pinned to a commit.
-      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
       - uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
       - name: Build and sign release APK
         env:
