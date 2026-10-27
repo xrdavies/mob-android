@@ -14,11 +14,10 @@ concurrency:
   group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 jobs:
+  # Builds with a read-only token; only the release job below can write.
   apk:
     runs-on: ubuntu-24.04
     environment: release
-    permissions:
-      contents: write
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
@@ -41,8 +40,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: android-actions/setup-android@v3
-      - uses: gradle/actions/setup-gradle@v5
+      # Third-party actions run with the signing key in this job: pinned to a commit.
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+      - uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
       - name: Build and sign release APK
         env:
           MOB_VERSION_NAME: ${{ steps.version.outputs.version }}
@@ -68,6 +68,24 @@ jobs:
       - name: Remove signing key
         if: always()
         run: rm -f "$RUNNER_TEMP/release.jks"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: apk-release
+          path: release-assets/*
+          if-no-files-found: error
+  release:
+    needs: apk
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: apk-release
+          path: release-assets
       - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
