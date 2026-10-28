@@ -129,11 +129,11 @@ fun ChatScreen(appState: AppState, onOpenDrawer: (() -> Unit)?, onOpenSettings: 
                             Box(Modifier.size(7.dp).background(if (isConnected) Color(0xFF22C55E) else Color(0xFFEF4444), CircleShape))
                             Spacer(Modifier.width(6.dp))
                             val route = machine?.address?.takeIf { machine.addresses.size > 1 }
-                            // Two ways to reach the Mac: show which one, and let the user switch here.
+                            // Two ways to reach the office computer: show which one, and let the user switch here.
                             var routeMenu by remember { mutableStateOf(false) }
                             Box {
                                 Text(
-                                    if (machine != null && route != null) "${machine.name} · via ${machine.label(route)}" else machine?.name ?: "No office Mac",
+                                    if (machine != null && route != null) "${machine.name} · via ${machine.label(route)}" else machine?.name ?: "No office computer",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
                                     modifier = if (route != null) Modifier.clickable { routeMenu = true } else Modifier,
@@ -188,10 +188,10 @@ fun ChatScreen(appState: AppState, onOpenDrawer: (() -> Unit)?, onOpenSettings: 
 
                     Box(Modifier.weight(1f).widthIn(max = 840.dp).fillMaxWidth()) {
                         when {
-                            machine == null -> EmptyState("Add your office Mac to start", "Settings → Machines → Add machine") {
+                            machine == null -> EmptyState("Add your office computer to start", "Settings → Machines → Add machine") {
                                 Button(onClick = onOpenSettings) { Text("Open Settings") }
                             }
-                            currentId == null -> EmptyState("New chat on ${machine.name}", "Ask the agent to do something on the office Mac")
+                            currentId == null -> EmptyState("New chat on ${machine.name}", "Ask the agent to do something on the office computer")
                             detail == null && loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                             else -> LazyColumn(
                                 state = listState,

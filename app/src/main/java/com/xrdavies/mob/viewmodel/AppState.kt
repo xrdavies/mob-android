@@ -94,7 +94,7 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
 
     val notifier = Notifier(appContext)
 
-    /** Global event streams, one per machine, so every Mac can notify (not only the active one). */
+    /** Global event streams, one per machine, so every machine can notify (not only the active one). */
     private val watchers = mutableMapOf<String, MachineWatcher>()
     private val liveMachines = mutableSetOf<String>()
 

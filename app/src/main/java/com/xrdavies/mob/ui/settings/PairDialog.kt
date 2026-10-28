@@ -36,7 +36,7 @@ private fun defaultDeviceName(context: Context): String =
     Settings.Global.getString(context.contentResolver, Settings.Global.DEVICE_NAME)?.takeIf { it.isNotBlank() } ?: Build.MODEL
 
 /**
- * Adds an office Mac from a `mobd link` link or QR code, or pairs [machine] again.
+ * Adds an office computer from a `mobd link` link or QR code, or pairs [machine] again.
  * State is saveable: the scanner may recreate the activity.
  */
 @Composable
@@ -73,7 +73,7 @@ fun PairDialog(appState: AppState, machine: Machine?, onDismiss: () -> Unit) {
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    "On the office Mac run mobd link, then scan its QR code or paste the link it prints.",
+                    "On the office computer run mobd link, then scan its QR code or paste the link it prints.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 OutlinedTextField(
@@ -130,7 +130,7 @@ fun PairDialog(appState: AppState, machine: Machine?, onDismiss: () -> Unit) {
                     OutlinedTextField(
                         name, { name = it }, label = { Text("Name of this device") }, singleLine = true, enabled = !busy,
                         isError = deviceNameError(name) != null,
-                        supportingText = { Text(deviceNameError(name) ?: "Shown on the office Mac in the list of paired devices") },
+                        supportingText = { Text(deviceNameError(name) ?: "Shown on the office computer in the list of paired devices") },
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -186,7 +186,7 @@ fun NeedsPairingBanner(machine: Machine, onPair: () -> Unit, modifier: Modifier 
             Column(Modifier.weight(1f)) {
                 Text("${machine.name} needs pairing", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onErrorContainer)
                 Text(
-                    "Run mobd link on the office Mac, then pair this device again.",
+                    "Run mobd link on the office computer, then pair this device again.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer,
                 )
             }

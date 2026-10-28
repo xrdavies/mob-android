@@ -64,7 +64,7 @@ fun SettingsScreen(appState: AppState) {
 
             SettingsCard("Machines") {
                 if (machines.isEmpty()) {
-                    Text("No office Mac yet. Run mobd link on the Mac that runs the agent, then add it here.", style = MaterialTheme.typography.bodyMedium)
+                    Text("No office computer yet. Run mobd link on the computer that runs the agent, then add it here.", style = MaterialTheme.typography.bodyMedium)
                 }
                 machines.forEach { m ->
                     // Tap selects the machine; long-press chooses the route (LAN or Remote) and more.
@@ -154,7 +154,7 @@ fun SettingsScreen(appState: AppState) {
         AlertDialog(
             onDismissRequest = { deleting = null },
             title = { Text("Remove ${m.name}?") },
-            text = { Text("Only removes it from this phone. Chats stay on the office Mac.") },
+            text = { Text("Only removes it from this phone. Chats stay on the office computer.") },
             confirmButton = {
                 TextButton(onClick = {
                     appState.deleteMachine(m.id)
@@ -195,7 +195,7 @@ private fun StatusCard(appState: AppState, onPair: (String) -> Unit) {
         }
         error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
         health?.problems?.takeIf { it.isNotEmpty() }?.let { problems ->
-            Text("Needs attention on the office Mac", style = MaterialTheme.typography.labelLarge, color = Color(0xFFD97706))
+            Text("Needs attention on the office computer", style = MaterialTheme.typography.labelLarge, color = Color(0xFFD97706))
             problems.forEach { (label, detail) ->
                 Row {
                     Icon(Icons.Filled.WarningAmber, null, Modifier.size(16.dp).padding(top = 2.dp), tint = Color(0xFFD97706))
@@ -232,7 +232,7 @@ private fun NotificationsCard(appState: AppState) {
     }
     SettingsCard("Notifications") {
         Text(
-            "Get notified when the agent asks you something or a task finishes, on every office Mac in the list.",
+            "Get notified when the agent asks you something or a task finishes, on every office computer in the list.",
             style = MaterialTheme.typography.bodyMedium,
         )
         if (!allowed) {
@@ -294,7 +294,7 @@ private fun MachineDialog(
         title = { Text(initial.name) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Name") }, placeholder = { Text("Office Mac") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(name, { name = it }, label = { Text("Name") }, placeholder = { Text("Office computer") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 // Each address comes from pairing; a new one needs a new link.
                 Text("Addresses", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 initial.addresses.forEach { a ->
@@ -311,7 +311,7 @@ private fun MachineDialog(
                 }
                 TextButton(onClick = onPairAgain) { Text("Add address…") }
                 Text(
-                    "Each address is paired on its own, so the device token never goes to an address it was not paired on. To add one, run mobd link (or mobd link --lan) on the office Mac and scan its code. Long-press the machine in the list to choose which address Mob uses.",
+                    "Each address is paired on its own, so the device token never goes to an address it was not paired on. To add one, run mobd link (or mobd link --lan) on the office computer and scan its code. Long-press the machine in the list to choose which address Mob uses.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text("Agents", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -335,7 +335,7 @@ private fun MachineDialog(
         },
         confirmButton = {
             TextButton(onClick = {
-                onSave(name.trim().ifBlank { "Office Mac" }, labels.toMap())
+                onSave(name.trim().ifBlank { "Office computer" }, labels.toMap())
             }) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },

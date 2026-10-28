@@ -57,7 +57,7 @@ fun TasksScreen(appState: AppState, onOpenChat: (String) -> Unit) {
     ) { padding ->
         val list = tasks
         when {
-            activeId == null -> Centered("Add your office Mac in Settings", padding)
+            activeId == null -> Centered("Add your office computer in Settings", padding)
             list == null && error != null -> Centered("Could not load tasks\n$error", padding)
             list == null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             list.isEmpty() -> Centered("No tasks yet\nTasks you create will appear here", padding)

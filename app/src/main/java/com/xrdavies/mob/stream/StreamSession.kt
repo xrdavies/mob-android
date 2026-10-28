@@ -305,7 +305,7 @@ class StreamSession(context: Context) : LiveSession {
                 if (via == WEBRTC) onFrame(w, h)
             }
         }
-        private val timeout = Runnable { fail("The live view did not start. Is the office Mac reachable from here?") }
+        private val timeout = Runnable { fail("The live view did not start. Is the office computer reachable from here?") }
         private val gatherTimeout = Runnable { offer() }
         private val statsTick = object : Runnable {
             override fun run() {
@@ -462,7 +462,7 @@ class StreamSession(context: Context) : LiveSession {
                     player = null
                     when {
                         // Still racing: WebRTC may yet connect.
-                        !opened -> if (!pcOpen) fail("The office Mac could not be reached over WebRTC or the WebSocket fallback")
+                        !opened -> if (!pcOpen) fail("The office computer could not be reached over WebRTC or the WebSocket fallback")
                         code == 1000 -> {
                             fail("Disconnected")
                             _state.value = LiveState(LiveStatus.Idle, "Disconnected")
@@ -596,7 +596,7 @@ class StreamSession(context: Context) : LiveSession {
                         via == WEBRTC -> fail("The live view connection was lost")
                         player != null -> dropWebRTC() // the WebSocket is already trying
                         session != null -> startWs(false) // no UDP path: don't wait out the head start
-                        else -> fail("The office Mac could not be reached over WebRTC")
+                        else -> fail("The office computer could not be reached over WebRTC")
                     }
                     else -> Unit
                 }

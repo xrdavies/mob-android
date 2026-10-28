@@ -9,7 +9,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-/** Sends an answer picked or typed in a question notification to the office Mac. */
+/** Sends an answer picked or typed in a question notification to the office computer. */
 class AnswerReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val machine = intent.getStringExtra(Notifier.EXTRA_MACHINE) ?: return

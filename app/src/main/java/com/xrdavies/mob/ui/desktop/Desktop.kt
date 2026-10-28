@@ -151,7 +151,7 @@ private fun LiveView(appState: AppState) {
     val control = state.control
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
-    // Where the last touch reached the Mac, in desktop pixels.
+    // Where the last touch reached the office computer, in desktop pixels.
     var mark by remember { mutableStateOf<IntOffset?>(null) }
     val keyboardFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -175,7 +175,7 @@ private fun LiveView(appState: AppState) {
                 }
             }
 
-            // View mode: pinch to zoom, drag to pan, double-tap to reset. Control mode: touches go to the Mac.
+            // View mode: pinch to zoom, drag to pan, double-tap to reset. Control mode: touches go to the office computer.
             Box(
                 Modifier
                     .weight(1f)
@@ -236,7 +236,7 @@ private fun LiveView(appState: AppState) {
             Text(
                 when {
                     control -> "Tap = click · long-press = right-click · drag · two fingers: scroll or pinch to zoom"
-                    liveConnected -> "View only · pinch to zoom · switch to Control to use the Mac"
+                    liveConnected -> "View only · pinch to zoom · switch to Control to use the office computer"
                     state.status == LiveStatus.Connecting -> "View only · connecting the live view…"
                     else -> "View only snapshot · " + state.detail.ifBlank { "live view not connected" }
                 },
@@ -587,7 +587,7 @@ private fun Modifier.controlGestures(
 
 private enum class Gesture { Undecided, Drag, TwoFinger, Zoom, Scroll, Done }
 
-/** A ring where the last touch reached the Mac (the Mac draws its own pointer). */
+/** A ring where the last touch reached the office computer (it draws its own pointer). */
 @Composable
 private fun TouchMarker(at: IntOffset, fw: Int, fh: Int, scale: Float) {
     if (fw <= 0 || fh <= 0) return

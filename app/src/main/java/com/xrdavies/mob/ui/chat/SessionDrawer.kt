@@ -223,7 +223,7 @@ fun SessionDrawer(appState: AppState, onClose: () -> Unit, onManageMachines: () 
         AlertDialog(
             onDismissRequest = { deleting = null },
             title = { Text("Delete chat?") },
-            text = { Text("\"${s.displayTitle}\" and its screenshots are removed from the office Mac." + (if (perSession) " $DESKTOP_CLOSES" else "") + " This cannot be undone.") },
+            text = { Text("\"${s.displayTitle}\" and its screenshots are removed from the office computer." + (if (perSession) " $DESKTOP_CLOSES" else "") + " This cannot be undone.") },
             confirmButton = {
                 TextButton(onClick = {
                     chat.delete(s)
@@ -275,7 +275,7 @@ private fun MachineSwitcher(appState: AppState, onManageMachines: () -> Unit) {
             Icon(Icons.Filled.DesktopMac, null, tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(active?.name ?: "No office Mac", style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(active?.name ?: "No office computer", style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (active != null) {
                         Box(Modifier.size(7.dp).background(if (connected) Color(0xFF22C55E) else Color(0xFFEF4444), CircleShape))

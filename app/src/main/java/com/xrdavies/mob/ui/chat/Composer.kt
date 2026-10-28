@@ -170,7 +170,7 @@ fun Composer(appState: AppState) {
                         when {
                             canSteer -> "Add to what the agent is doing…"
                             busy -> "The agent is working… you can draft the next message"
-                            else -> "Ask Mob to do something on ${appState.activeMachine?.name ?: "the office Mac"}…"
+                            else -> "Ask Mob to do something on ${appState.activeMachine?.name ?: "the office computer"}…"
                         },
                         maxLines = 2, overflow = TextOverflow.Ellipsis,
                     )

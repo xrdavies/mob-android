@@ -105,20 +105,20 @@ suspend fun pair(link: PairLink, name: String, client: OkHttpClient): PairResult
         val spent = r.code == 401 || (r.code == 404 && body?.code == "pairing_closed")
         when {
             r.code == 201 -> {}
-            spent -> throw PairException("This invite is invalid, expired or already used. Run mobd link on the office Mac again.")
-            r.code == 400 -> throw PairException("The office Mac rejected the device name" + (error?.let { ": $it" } ?: ""))
-            r.code == 503 -> throw PairException("The office Mac could not store the pairing. Check mobd on the office Mac and try again.")
-            r.code == 404 -> throw PairException("This mobd does not support pairing. Update mobd on the office Mac.")
-            r.code in 300..399 -> throw PairException("The office Mac answered with a redirect. Use the link exactly as mobd link printed it.")
+            spent -> throw PairException("This invite is invalid, expired or already used. Run mobd link on the office computer again.")
+            r.code == 400 -> throw PairException("The office computer rejected the device name" + (error?.let { ": $it" } ?: ""))
+            r.code == 503 -> throw PairException("The office computer could not store the pairing. Check mobd on the office computer and try again.")
+            r.code == 404 -> throw PairException("This mobd does not support pairing. Update mobd on the office computer.")
+            r.code in 300..399 -> throw PairException("The office computer answered with a redirect. Use the link exactly as mobd link printed it.")
             else -> throw PairException(error ?: "HTTP ${r.code}")
         }
         val res = runCatching { ApiClient.gson.fromJson(text, PairResponse::class.java) }.getOrNull()
         val serverId = res?.serverId?.takeIf { it.isNotBlank() }
         val clientId = res?.clientId?.takeIf { it.isNotBlank() }
         val token = res?.token?.takeIf { it.isNotBlank() }
-        if (serverId == null || clientId == null || token == null) throw PairException("The office Mac sent an unexpected answer")
+        if (serverId == null || clientId == null || token == null) throw PairException("The office computer sent an unexpected answer")
         if (serverId != link.serverId) {
-            throw PairException("The office Mac answered with a different server ID than the link. Run mobd link again on the right Mac.")
+            throw PairException("The office computer answered with a different server ID than the link. Run mobd link again on the right computer.")
         }
         PairResult(serverId, clientId, token)
     }

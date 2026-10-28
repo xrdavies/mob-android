@@ -24,7 +24,7 @@ class WatchService : Service() {
         val count = state.machines.value.size
         val n = NotificationCompat.Builder(this, Notifier.WATCH)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("Watching ${if (count == 1) "your office Mac" else "$count office Macs"}")
+            .setContentTitle("Watching ${if (count == 1) "your office computer" else "$count office computers"}")
             .setContentText("You get a notification when the agent asks something or a task ends")
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setOngoing(true)

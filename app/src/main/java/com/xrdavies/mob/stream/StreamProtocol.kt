@@ -13,7 +13,7 @@ import kotlin.math.roundToInt
 
 private val gson = Gson()
 
-const val UPDATE_MOBD = "Update mobd on the office Mac to use the live desktop"
+const val UPDATE_MOBD = "Update mobd on the office computer to use the live desktop"
 
 /** mobd's quality profiles (internal/stream/stream.go), with the hints the desktop app shows. */
 enum class LiveQuality(val wire: String, val label: String, val hint: String) {
@@ -117,7 +117,7 @@ fun parseControl(text: String): Control? {
     fun str(k: String) = runCatching { o.get(k)?.takeIf { it.isJsonPrimitive }?.asString }.getOrNull().orEmpty()
     return when (str("t")) {
         "stats" -> Control.Stats(num("kbps").toInt(), num("width").toInt(), num("height").toInt(), num("fps").toInt(), num("loss"), num("rttMs").toInt())
-        "ended" -> Control.Ended(str("message").ifBlank { "The office Mac ended the live view" })
+        "ended" -> Control.Ended(str("message").ifBlank { "The office computer ended the live view" })
         "error" -> Control.Error(str("about"), str("message"))
         "cursor" -> Control.Cursor(num("x"), num("y"))
         else -> null

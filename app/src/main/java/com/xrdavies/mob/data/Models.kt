@@ -243,7 +243,7 @@ enum class AddressKind(val title: String) {
 }
 
 /**
- * An office Mac running mobd: one row, reached over one or more addresses. Stored on the phone only;
+ * An office computer running mobd: one row, reached over one or more addresses. Stored on the phone only;
  * the device tokens live in [SecretStore]. Gson skips Kotlin defaults, so fields added later must be nullable.
  */
 data class Machine(

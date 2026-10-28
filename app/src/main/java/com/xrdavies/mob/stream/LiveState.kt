@@ -8,7 +8,7 @@ data class LiveState(
     val detail: String = "",
     val width: Int = 0,
     val height: Int = 0,
-    /** Touches and keys reach the office Mac only while true (full-screen Control mode). */
+    /** Touches and keys reach the office computer only while true (full-screen Control mode). */
     val control: Boolean = false,
 )
 
@@ -30,7 +30,7 @@ object LiveKeys {
     const val XK_DOWN = 0xff54
     const val XK_SHIFT_L = 0xffe1
     const val XK_CONTROL_L = 0xffe3
-    /** Command on the office Mac. */
+    /** Command on the office computer. */
     const val XK_META_L = 0xffe7
     const val XK_ALT_L = 0xffe9
 }

@@ -32,7 +32,7 @@ class Notifier(private val context: Context) {
                 description = "A task finished or failed"
             })
             nm.createNotificationChannel(NotificationChannel(WATCH, "Background connection", NotificationManager.IMPORTANCE_MIN).apply {
-                description = "Shown while Mob watches your office Macs in the background"
+                description = "Shown while Mob watches your office computers in the background"
             })
         }
     }
@@ -98,7 +98,7 @@ class Notifier(private val context: Context) {
         )
         fun button(label: String, extras: Intent.() -> Unit) =
             NotificationCompat.Action.Builder(0, label, intent(false, extras))
-                // Answers act on the office Mac, so they need an unlocked phone.
+                // Answers act on the office computer, so they need an unlocked phone.
                 .setAuthenticationRequired(true).build()
         if (q.isApproval) {
             return listOf(
@@ -119,7 +119,7 @@ class Notifier(private val context: Context) {
         return buttons + reply
     }
 
-    /** An answer from a notification did not reach the Mac; replaces the question notification. */
+    /** An answer from a notification did not reach the office computer; replaces the question notification. */
     fun answerFailed(m: Machine, session: String, message: String) =
         post(id(m, session, "ask"), QUESTIONS, "Your answer was not sent", "$message. Open the chat to answer.", m, session)
 
