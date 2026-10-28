@@ -65,7 +65,7 @@ adb shell am instrument -w -e mobdUrl … -e mobdToken … \
 
 ## Releases
 
-Signed APKs are published to `https://mob-releases.0xd.app/android/` and offered on the mob website.
+Signed APKs are published to `https://dl.mymob.dev/android/` and offered on the mob website.
 Run `make release VERSION=vX.Y.Z` (commits the version, tags that commit and pushes both); see [docs/releases.md](docs/releases.md) for the release runbook (keystore and CI setup, checklist, rollback, and Google Play, which is not set up yet).
 
 ## Architecture

@@ -67,7 +67,7 @@ openssl base64 -A -in mob-release.jks -out /tmp/keystore.txt
 | Secret | `ANDROID_KEY_ALIAS` | 密钥别名，如 `mob` |
 | Secret | `ANDROID_KEY_PASSWORD` | 密钥密码 |
 | Secret | `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | 限定到发布桶的 R2 凭据 |
-| Variable | `DOWNLOAD_BASE_URL` | `https://mob-releases.0xd.app` |
+| Variable | `DOWNLOAD_BASE_URL` | `https://dl.mymob.dev` |
 | Variable | `R2_ACCOUNT_ID` / `R2_BUCKET` | 与 mob 仓库相同 |
 | Secret（可选） | `SITE_DISPATCH_TOKEN` | 对 `xrdavies/mob-site` 有 Contents 读写权限的 fine-grained token；发布后立即重建官网 |
 
@@ -116,10 +116,10 @@ CI 仍以标签注入版本。
 ### 4. 发布后验证
 
 - [ ] Actions 中 **Publish mob Android to R2** 成功（不是只有 Release 工作流成功）。
-- [ ] `curl -s https://mob-releases.0xd.app/android/latest.json` 显示新版本和 `version_code`。
+- [ ] `curl -s https://dl.mymob.dev/android/latest.json` 显示新版本和 `version_code`。
 - [ ] 用 `download.url` 下载 APK，`shasum -a 256` 与 `download.sha256` 一致。
 - [ ] 签名指纹与备份记录一致：`apksigner verify --print-certs mob-android_X.Y.Z.apk`。
-- [ ] 官网下载页（https://mob.0xd.app/download/#android）显示新版本和 APK 按钮（未配置 `SITE_DISPATCH_TOKEN` 时等待最多一小时）。
+- [ ] 官网下载页（https://mymob.dev/download/#android）显示新版本和 APK 按钮（未配置 `SITE_DISPATCH_TOKEN` 时等待最多一小时）。
 - [ ] 在未登录 GitHub 的手机浏览器下载并安装成功。
 
 ### 5. 失败、回滚与热修复
