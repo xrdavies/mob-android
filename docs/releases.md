@@ -215,7 +215,7 @@ keytool -genkeypair -v -keystore mob-upload.jks -alias upload \
 export ANDROID_KEYSTORE_PATH=/path/to/mob-upload.jks   # 方案 A 用上传密钥
 export ANDROID_KEYSTORE_PASSWORD=… ANDROID_KEY_ALIAS=upload ANDROID_KEY_PASSWORD=…
 export MOB_VERSION_NAME=0.1.0 MOB_VERSION_CODE=1000      # 按公式：0.1.0 → 1000
-./gradlew --no-daemon testReleaseUnitTest bundleRelease
+./gradlew --no-daemon testDebugUnitTest bundleRelease
 # 产物：app/build/outputs/bundle/release/app-release.aab
 ```
 
