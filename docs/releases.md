@@ -89,13 +89,16 @@ R2 桶、自定义域名和缓存规则与桌面端共用，见 `../mob/docs/rel
 
 ```bash
 git switch main && git pull --ff-only
-make release VERSION=v0.1.0
+make version          # 当前版本（app/build.gradle.kts）、上一个发布标签和之后的提交
+make release-patch    # 0.3.1 → 0.3.2；新功能用 release-minor，不兼容的改动用 release-major
 ```
 
-`.github/release/tag.mjs` 的检查与 mob 相同（干净的 `main`、与远端一致、版本不回退）。通过后把
+版本号以 `app/build.gradle.kts` 的默认 `versionName` 为准，标签只是它的镜像；跳号时用
+`make release VERSION=vX.Y.Z`。`.github/release/tag.mjs` 的检查与 mob 相同（干净的 `main`、与远端一致、
+版本不回退、提交未发布过），显示「当前 → 新版本」和之后的提交并询问 `[y/N]`。确认后把
 `app/build.gradle.kts` 中本地构建的默认 `versionName`/`versionCode` 改为该版本，提交
 `chore(release): vX.Y.Z`，在该提交打标签，并用 `git push --atomic` 同时推送 `main` 和标签。
-CI 仍以标签注入版本。
+CI 仍以标签注入版本，并在构建前确认标签提交的默认值与标签一致。
 在 Actions 中查看 **Release mob Android**：运行单元测试、构建并签名 `assembleRelease`，
 用 `apksigner` 校验签名，创建草稿 Release。下载 APK 在真机上试装，编辑面向用户的说明，
 然后 **Publish release**（不要勾选 pre-release）。
@@ -137,13 +140,13 @@ CI 仍以标签注入版本。
 - **发现严重问题（回滚）**：不能回退。发布器拒绝把 stable 指向更低版本，Android 也不允许用较低的
   `versionCode` 覆盖安装。修复后发布更高的 PATCH（如 `v0.1.1`）。紧急时可在 Release 正文和官网
   说明中提示用户暂不升级；已公开版本的文件不可替换。
-- 热修复流程与正常发布相同：在 `main` 提交修复 → `make release VERSION=vX.Y.(Z+1)`。
+- 热修复流程与正常发布相同：在 `main` 提交修复 → `make release-patch`。
 
 ## 二、发布清单（每次）
 
 - [ ] `main` 已推送，`make test`、`make release-test` 通过。
 - [ ] 版本号高于上一个标签；更新说明已写好。
-- [ ] `make release VERSION=vX.Y.Z` 成功：`main` 上有 `chore(release)` 提交，标签已推送。
+- [ ] `make release-patch`（或 `-minor`、`-major`、`VERSION=vX.Y.Z`）成功：`main` 上有 `chore(release)` 提交，标签已推送。
 - [ ] **Release mob Android** 成功；草稿含 `mob-android_X.Y.Z.apk` 和 `SHA256SUMS`。
 - [ ] 真机覆盖安装和首次安装通过。
 - [ ] 编辑 Release 正文，Publish（非 pre-release）。

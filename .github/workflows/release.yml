@@ -34,6 +34,8 @@ jobs:
           set -euo pipefail
           [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           version="${RELEASE_TAG#v}"
+          # The tag's version files must carry its version (make release does this).
+          node .github/release/version.mjs --check "$RELEASE_TAG"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "code=$(RELEASE_VERSION="$version" node .github/release/release.mjs version-code)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-java@v5

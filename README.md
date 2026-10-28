@@ -53,7 +53,7 @@ export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 adb shell am start -n com.xrdavies.mob/.MainActivity
 ```
 
-`make` lists the tasks: `make test` (unit tests), `make apk` (debug APK), `make release`, `make release-test`.
+`make` lists the tasks: `make test` (unit tests), `make apk` (debug APK), `make version`, `make release-patch` (`-minor`, `-major`), `make release-test`.
 
 `LiveStreamTest` (instrumented) opens a real live view and is skipped unless given a paired credential; it only moves the office pointer. Run it without `connectedAndroidTest`, which uninstalls the app and its pairing:
 
@@ -66,7 +66,7 @@ adb shell am instrument -w -e mobdUrl … -e mobdToken … \
 ## Releases
 
 Signed APKs are published to `https://dl.mymob.dev/android/` and offered on the mob website.
-Run `make release VERSION=vX.Y.Z` (commits the version, tags that commit and pushes both); see [docs/releases.md](docs/releases.md) for the release runbook (keystore and CI setup, checklist, rollback, and Google Play, which is not set up yet).
+Run `make release-patch` (or `release-minor`, `release-major`, or `make release VERSION=vX.Y.Z`): it bumps the version, asks for confirmation, commits it, tags that commit and pushes both; see [docs/releases.md](docs/releases.md) for the release runbook (keystore and CI setup, checklist, rollback, and Google Play, which is not set up yet).
 
 ## Architecture
 
