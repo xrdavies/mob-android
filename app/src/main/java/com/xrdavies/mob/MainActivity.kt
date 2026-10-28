@@ -47,6 +47,17 @@ class MainActivity : ComponentActivity() {
         openFrom(intent)
     }
 
+    override fun onStart() {
+        super.onStart()
+        appState.files.foreground = true
+    }
+
+    override fun onStop() {
+        appState.files.foreground = false
+        appState.files.pauseAll()
+        super.onStop()
+    }
+
     /** A notification tap carries the machine and chat to open. */
     private fun openFrom(intent: Intent?) {
         val machine = intent?.getStringExtra(Notifier.EXTRA_MACHINE)?.takeIf { it.isNotEmpty() } ?: return

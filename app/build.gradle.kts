@@ -85,6 +85,7 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:okhttp-sse:4.12.0")
+    implementation("io.tus.java.client:tus-java-client:0.5.1")
 
     // Live desktop: libwebrtc (LiveKit's maintained build of Google's WebRTC, BSD)
     implementation("io.github.webrtc-sdk:android:150.7871.01")
