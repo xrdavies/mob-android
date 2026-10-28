@@ -74,21 +74,38 @@ fun ChatScreen(appState: AppState, onOpenDrawer: (() -> Unit)?, onOpenSettings: 
     }
     val lastFooter = items.lastOrNull { it is TimelineItem.Footer }?.id
     val listState = rememberLazyListState()
-    // Follow new output while the user is at the bottom; jump there when a chat opens.
-    val atBottom by remember { derivedStateOf { !listState.canScrollForward } }
+    // Follow new output until the user scrolls up; reaching the bottom again resumes it. "At the
+    // bottom" cannot be checked when output arrives: the new item is laid out below by then.
+    var follow by remember { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        snapshotFlow { Triple(listState.isScrollInProgress, listState.lastScrolledBackward, listState.canScrollForward) }
+            .collect { (scrolling, up, more) ->
+                if (scrolling && up) follow = false
+                if (!more) follow = true
+            }
+    }
+    // The end of the last item (a long reply's last line), not its top: the list stops at its end.
+    // Far past any item's height, but well clear of Int overflow in the list's layout.
+    suspend fun toEnd() { if (items.isNotEmpty()) listState.scrollToItem(items.lastIndex, 1_000_000) }
     var followed by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(items.size, items.lastOrNull(), currentId) {
+    // Every change counts: a reply streams in above the "Working" row, which stays the last item.
+    LaunchedEffect(items, currentId) {
         if (items.isEmpty()) return@LaunchedEffect
         if (followed != currentId) {
-            listState.scrollToItem(items.size - 1)
             followed = currentId
-        } else if (atBottom) listState.animateScrollToItem(items.size - 1)
+            follow = true
+            toEnd()
+        } else if (follow) toEnd()
     }
-    // A new question always comes into view, even if it arrived while the app was in the background.
+    // Sending follows the chat again, as does a new question, even one that arrived in the background.
     val pending = items.indexOfLast { it is TimelineItem.Ask && it.question.isPending }
     val pendingId = items.getOrNull(pending)?.id
-    LaunchedEffect(pendingId) {
-        if (pendingId != null) listState.animateScrollToItem(items.size - 1)
+    val lastUser = items.lastOrNull { it is TimelineItem.User }?.id
+    LaunchedEffect(pendingId, lastUser) {
+        if (pendingId != null || lastUser != null) {
+            follow = true
+            toEnd()
+        }
     }
     LiveViewDialog(appState)
 
