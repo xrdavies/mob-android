@@ -1,16 +1,16 @@
 # mob-android
 
-Native Android app (Kotlin, Jetpack Compose) for [mob](https://github.com/xrdavies/mob): dispatch AI agent tasks to your office Mac and monitor the desktop from your Android phone or tablet.
+Native Android app (Kotlin, Jetpack Compose) for [mob](https://github.com/xrdavies/mob): dispatch AI agent tasks to your office computer and monitor the desktop from your Android phone or tablet.
 
 ## Requirements
 
 - Android 8.0+ (API level 26+)
 - Android Studio with an SDK for API 37 (builds with AGP 9.4, Gradle 9.6 wrapper, Kotlin 2.4, JDK 17+)
-- Office Mac running [mobd](https://github.com/xrdavies/mobd) (API v3) with the `stream` feature
+- An office computer (macOS or Linux) running [mobd](https://github.com/xrdavies/mobd) (API v3) with the `stream` feature
 
 ## Features
 
-- **Several office Macs**: add, edit and switch machines (Settings → Machines, or the switcher at the top of the chat list); each has its own chats, pairing and live view quality
+- **Several office computers**: add, edit and switch machines (Settings → Machines, or the switcher at the top of the chat list); each has its own chats, pairing and live view quality
 - **Pairing**: scan or paste the link from `mobd link`; the device credential is stored encrypted with the Android Keystore and sent as `Authorization: Bearer`. When mobd no longer accepts it (revoked, auth reset) the machine shows **Pair again**
 - **Chats**: chat list drawer with New chat, Pinned / Recent / Archived, and rename, pin, archive, delete per chat
 - **Chat with your office agent** (Codex or Claude Code)
@@ -42,7 +42,7 @@ Not yet checked: a real phone by hand (clicks, typing, gestures, hardware decode
 1. Clone: `git clone git@github.com:xrdavies/mob-android.git`
 2. Open in Android Studio, sync Gradle and build
 3. Run on emulator or device
-4. On the office Mac run `mobd link --url <address the phone can reach>`; in the app, Settings → Machines → Add machine, scan the QR code or paste the link, then Pair
+4. On the office computer run `mobd link`; in the app, Settings → Machines → Add machine, scan the QR code or paste the link, then Pair
 
 From the command line (Android Studio's bundled JDK works):
 
