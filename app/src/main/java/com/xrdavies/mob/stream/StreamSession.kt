@@ -175,7 +175,7 @@ class StreamSession(context: Context) : LiveSession {
         c.send(c.input, buttonMessage(nx, ny, name, false))
     }
 
-    /** RFB-style: [mask] is the buttons held now; changes become button messages, the rest moves. */
+    /** [buttons] is the bitmask of buttons held now; changes become button messages, the rest moves. */
     override fun pointer(x: Int, y: Int, buttons: Int) {
         val c = controlled() ?: return
         val (nx, ny) = at(x, y)

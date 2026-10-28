@@ -148,13 +148,7 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
         val stored = raw?.let(::decodeMachines)
         // No machine is made up: a fresh install starts empty and adds one from a mobd link.
         val list = stored ?: emptyList()
-        // VNC is gone: older lists kept a Desktop sign-in (and once a plain-text password); saving
-        // again drops it, and the stored passwords are deleted once.
-        var changed = (stored == null && list.isNotEmpty()) || raw?.contains("\"vnc") == true
-        if (!prefs.getBoolean("vncRemoved", false)) {
-            list.forEach { secrets.delete("${it.id}.vncPassword") }
-            prefs.edit().remove("vncUsername").remove("vncPassword").putBoolean("vncRemoved", true).apply()
-        }
+        var changed = false
         // Addresses from before pairing have no token and wait for the user to pair them.
         val migrated = list.map { m ->
             m.copy(addresses = m.addresses.map { a ->

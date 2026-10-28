@@ -8,14 +8,9 @@ import org.junit.Test
 
 class MachineTest {
     @Test
-    fun decodesOldListWithoutDesktopSignIn() {
-        val list = decodeMachines("""[{"id":"m1","name":"Office","mobdUrl":"http://h:8080","vncUsername":"me","vncPassword":"pw"}]""")!!
-        val m = list.single()
+    fun decodesAMachineFromBeforePairing() {
+        val m = decodeMachines("""[{"id":"m1","name":"Office","mobdUrl":"http://h:8080"}]""")!!.single()
         assertEquals("Office", m.name)
-        // VNC is gone: saving the list again drops the sign-in.
-        val saved = ApiClient.gson.toJson(list)
-        assertFalse(saved.contains("vnc"))
-        assertFalse(saved.contains("pw"))
         assertNull(m.serverId)
         assertNull(m.clientId)
         assertNull(m.needsPairing)
