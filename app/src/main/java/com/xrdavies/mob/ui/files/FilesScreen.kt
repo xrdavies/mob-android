@@ -16,7 +16,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.xrdavies.mob.data.Health
+import com.xrdavies.mob.data.Machine
 import com.xrdavies.mob.viewmodel.AppState
+
+/** Files works with a paired machine whose mobd supports transfers. needsPairing is null once paired. */
+fun filesEnabled(health: Health?, machine: Machine?): Boolean =
+    health?.supports("fileTransfers") == true && machine != null && machine.needsPairing != true
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -28,7 +34,7 @@ fun FilesScreen(app: AppState) {
     val error by app.files.error.collectAsState()
     val preparing by app.files.preparing.collectAsState()
     val base = app.apiClient.baseUrl.toString()
-    val enabled = health?.supports("fileTransfers") == true && app.activeMachine?.needsPairing == false
+    val enabled = filesEnabled(health, app.activeMachine)
     val visible = tasks.filter { it.machine == activeId && it.base == base }
     val context = LocalContext.current
     var exporting by rememberSaveable { mutableStateOf<String?>(null) }
