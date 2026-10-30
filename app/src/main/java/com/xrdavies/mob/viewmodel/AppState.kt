@@ -90,6 +90,7 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
 
     /** Conversation desktops on the active machine; empty unless it has `sessionDesktops`. */
     val desktops = DesktopStore(viewModelScope, ::markNeedsPairing)
+    val files = FileTransferStore(appContext, viewModelScope, ::markNeedsPairing)
     private var healthJob: Job? = null
 
     val notifier = Notifier(appContext)
@@ -186,6 +187,7 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
         _isConnected.value = false
         _healthError.value = if (m != null && !ok) NEEDS_PAIRING else null
         chat.attach(_apiClient, m?.id.orEmpty(), enabled = ok)
+        files.attach(if (ok) _apiClient else null, m?.id.orEmpty())
         // Enabled once health says the server has conversation desktops.
         desktops.attach(_apiClient, m?.id.orEmpty(), enabled = false)
         healthJob?.cancel()

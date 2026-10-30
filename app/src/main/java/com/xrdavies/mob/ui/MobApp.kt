@@ -6,6 +6,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -20,6 +21,7 @@ import com.xrdavies.mob.ui.chat.ChatScreen
 import com.xrdavies.mob.ui.chat.SessionDrawer
 import com.xrdavies.mob.ui.settings.SettingsScreen
 import com.xrdavies.mob.ui.tasks.TasksScreen
+import com.xrdavies.mob.ui.files.FilesScreen
 import com.xrdavies.mob.viewmodel.AppState
 import kotlinx.coroutines.launch
 
@@ -50,6 +52,7 @@ fun MobApp(appState: AppState) {
     val destinations = listOf(
         Triple("chat", "Chat", Icons.AutoMirrored.Filled.Chat),
         Triple("tasks", "Tasks", Icons.AutoMirrored.Filled.List),
+        Triple("files", "Files", Icons.Filled.Folder),
         Triple("settings", "Settings", Icons.Filled.Settings),
     )
     val navIcon: @Composable (String, String, ImageVector) -> Unit = { r, label, icon ->
@@ -79,6 +82,7 @@ fun MobApp(appState: AppState) {
                     })
                 }
                 composable("settings") { SettingsScreen(appState) }
+                composable("files") { FilesScreen(appState) }
             }
         }
 

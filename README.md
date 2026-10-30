@@ -10,6 +10,7 @@ Mob for Android (Kotlin, Jetpack Compose). **Mob** is mob programming with your 
 
 ## Features
 
+- **Files**: upload local files and download from the machine’s shared directory, with pause/continue, persistent partial transfers and SHA-256 verification. Choose local files and save locations with the system picker. [Transfer details](docs/file-transfers.md).
 - **Several office computers**: add, edit and switch machines (Settings → Machines, or the switcher at the top of the chat list); each has its own chats, pairing and live view quality
 - **Pairing**: scan or paste the link from `mobd link`; the device credential is stored encrypted with the Android Keystore and sent as `Authorization: Bearer`. When mobd no longer accepts it (revoked, auth reset) the machine shows **Pair again**
 - **Chats**: chat list drawer with New chat, Pinned / Recent / Archived, and rename, pin, archive, delete per chat

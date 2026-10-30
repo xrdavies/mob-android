@@ -29,6 +29,7 @@ object Acknowledgements {
     val app = Acknowledgement("Mob for Android", "MIT", "https://github.com/xrdavies/mob-android", R.raw.license_mob)
 
     val libraries = listOf(
+        Acknowledgement("tus-java-client", "MIT", "https://github.com/tus/tus-java-client", R.raw.license_tus),
         Acknowledgement("WebRTC (libwebrtc, io.github.webrtc-sdk:android)", "BSD 3-Clause", "https://github.com/webrtc-sdk/webrtc", R.raw.license_webrtc),
         Acknowledgement("AndroidX and Jetpack Compose", "Apache 2.0", "https://developer.android.com/jetpack/androidx", R.raw.license_apache2),
         Acknowledgement("Kotlin coroutines", "Apache 2.0", "https://github.com/Kotlin/kotlinx.coroutines", R.raw.license_apache2),
