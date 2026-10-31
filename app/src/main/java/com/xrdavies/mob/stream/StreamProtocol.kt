@@ -108,6 +108,8 @@ sealed class Control {
     data class Ended(val message: String) : Control()
     data class Error(val about: String, val message: String) : Control()
     data class Cursor(val x: Double, val y: Double) : Control()
+    /** The answer to turning sound on or off, or why it stopped: on, off, unavailable or error. */
+    data class Audio(val state: String, val message: String) : Control()
 }
 
 /** A message from mobd's control channel; null for anything unknown or malformed. */
@@ -120,12 +122,16 @@ fun parseControl(text: String): Control? {
         "ended" -> Control.Ended(str("message").ifBlank { "The office computer ended the live view" })
         "error" -> Control.Error(str("about"), str("message"))
         "cursor" -> Control.Cursor(num("x"), num("y"))
+        "audio" -> Control.Audio(str("state"), str("message"))
         else -> null
     }
 }
 
-/** POST /stream's answer. */
-data class StreamAnswer(val session: String, val answer: String?, val width: Int, val height: Int)
+/** POST /stream's answer. [audio] answers `audio`: "ready", or "unavailable" with [audioReason]. */
+data class StreamAnswer(
+    val session: String, val answer: String?, val width: Int, val height: Int,
+    val audio: String? = null, val audioReason: String? = null,
+)
 
 fun parseAnswer(body: String): StreamAnswer? {
     val o: JsonObject = runCatching { JsonParser().parse(body).asJsonObject }.getOrNull() ?: return null
@@ -135,6 +141,8 @@ fun parseAnswer(body: String): StreamAnswer? {
         runCatching { o.get("answer")?.asString }.getOrNull()?.takeIf { it.isNotBlank() },
         runCatching { o.get("width")?.asInt }.getOrNull() ?: 0,
         runCatching { o.get("height")?.asInt }.getOrNull() ?: 0,
+        runCatching { o.getAsJsonObject("audio")?.get("status")?.asString }.getOrNull(),
+        runCatching { o.getAsJsonObject("audio")?.get("reason")?.asString }.getOrNull(),
     )
 }
 
@@ -143,10 +151,15 @@ fun errorText(body: String, code: Int): String =
     runCatching { JsonParser().parse(body).asJsonObject.get("error").asString }.getOrNull()?.takeIf { it.isNotBlank() } ?: "HTTP $code"
 
 /** [sessionId]: the conversation whose desktop to show (servers with `sessionDesktops`); omitted otherwise. */
-fun openRequest(offer: String, maxWidth: Int, maxHeight: Int, quality: LiveQuality, sessionId: String? = null): String =
+/** Turns the desktop's sound on or off on the control channel (mobd docs/desktop-audio.md). */
+fun audioMessage(on: Boolean): String = gson.toJson(mapOf("t" to "audio", "on" to on))
+
+/** [audio]: ask for the desktop's sound (servers with `streamAudio`); omitted otherwise. */
+fun openRequest(offer: String, maxWidth: Int, maxHeight: Int, quality: LiveQuality, sessionId: String? = null, audio: Boolean = false): String =
     gson.toJson(
         mapOf("offer" to offer, "maxWidth" to maxWidth, "maxHeight" to maxHeight, "quality" to quality.wire) +
-            (sessionId?.let { mapOf("sessionId" to it) } ?: emptyMap())
+            (sessionId?.let { mapOf("sessionId" to it) } ?: emptyMap()) +
+            (if (audio) mapOf("audio" to true) else emptyMap())
     )
 
 /**

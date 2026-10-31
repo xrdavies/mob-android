@@ -17,6 +17,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import com.xrdavies.mob.data.DESKTOP_ASLEEP
+import com.xrdavies.mob.stream.LiveSound
 import com.xrdavies.mob.data.NEEDS_PAIRING
 import com.xrdavies.mob.data.NO_DESKTOP
 import com.xrdavies.mob.data.NoDesktopException
@@ -33,6 +34,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.OpenInFull
@@ -116,6 +119,7 @@ fun DesktopDrawer(appState: AppState, modifier: Modifier = Modifier, maxHeight: 
         ) {
             DesktopCanvas(appState, Modifier.fillMaxSize())
             StatusChip(appState, Modifier.align(Alignment.TopStart).padding(8.dp))
+            SoundButton(appState, compact = true, modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp))
             Icon(
                 Icons.Filled.OpenInFull, "Open full screen", tint = Color.White,
                 modifier = Modifier
@@ -167,6 +171,7 @@ private fun LiveView(appState: AppState) {
                 IconButton(onClick = appState::closeLiveView) { Icon(Icons.Filled.Close, "Close", tint = Color.White) }
                 StatusChip(appState)
                 Spacer(Modifier.weight(1f))
+                SoundButton(appState, compact = false)
                 QualityMenu(appState)
                 if (liveConnected) {
                     ModeSwitch(control) { live.setControl(it) }
@@ -403,6 +408,45 @@ private fun StatusChip(appState: AppState, modifier: Modifier = Modifier) {
 }
 
 /** Live view quality for the active machine; picking one reconnects the stream, keeping control. */
+/** The office computer's sound: off until tapped (mobd with streamAudio, docs/desktop-audio.md). */
+@Composable
+private fun SoundButton(appState: AppState, compact: Boolean, modifier: Modifier = Modifier) {
+    val sound by appState.stream.sound.collectAsState()
+    val state by appState.stream.state.collectAsState()
+    val live by appState.live.collectAsState()
+    if (sound == LiveSound.None || live !== appState.stream) return
+    var why by remember { mutableStateOf<String?>(null) }
+    val blocked = sound is LiveSound.Unavailable || sound is LiveSound.Failed
+    val on = sound.isOn
+    IconButton(
+        onClick = {
+            when (val s = sound) {
+                is LiveSound.Unavailable -> why = s.why
+                is LiveSound.Failed -> why = s.why
+                else -> appState.stream.setSound(!on)
+            }
+        },
+        enabled = blocked || state.status == LiveStatus.Connected,
+        modifier = if (compact) modifier.size(32.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape) else modifier,
+    ) {
+        if (sound == LiveSound.Starting) CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+        else Icon(
+            if (on) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
+            if (on) "Turn sound off" else "Turn sound on",
+            tint = when {
+                sound == LiveSound.On -> Color(0xFF22C55E)
+                blocked -> Color.White.copy(alpha = 0.4f)
+                else -> Color.White
+            },
+            modifier = Modifier.size(if (compact) 18.dp else 24.dp),
+        )
+    }
+    why?.let { text ->
+        AlertDialog(onDismissRequest = { why = null }, title = { Text("Sound unavailable") }, text = { Text(text) },
+            confirmButton = { TextButton(onClick = { why = null }) { Text("OK") } })
+    }
+}
+
 @Composable
 private fun QualityMenu(appState: AppState) {
     val machines by appState.machines.collectAsState()

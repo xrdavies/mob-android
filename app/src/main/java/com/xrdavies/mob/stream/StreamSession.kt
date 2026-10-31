@@ -1,6 +1,9 @@
 package com.xrdavies.mob.stream
 
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import com.xrdavies.mob.data.ApiClient
@@ -32,12 +35,30 @@ import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
 import org.webrtc.VideoSink
 import org.webrtc.VideoTrack
+import org.webrtc.audio.JavaAudioDeviceModule
 import java.io.IOException
 import java.nio.ByteBuffer
 import kotlin.math.roundToInt
 
 /** Measured once a second while connected, plus mobd's own view of the link. */
 data class StreamStats(val readout: Readout? = null, val kbps: Int = 0, val loss: Double = 0.0)
+
+/**
+ * The office computer's sound (mobd docs/desktop-audio.md): [None] where mobd cannot share it, [Off]
+ * until the user turns it on, [Starting] until mobd confirms.
+ */
+sealed class LiveSound {
+    data object None : LiveSound()
+    data object Off : LiveSound()
+    data object Starting : LiveSound()
+    data object On : LiveSound()
+    data class Unavailable(val why: String) : LiveSound()
+    data class Failed(val why: String) : LiveSound()
+
+    val isOn get() = this == On || this == Starting
+}
+
+private const val NO_WS_SOUND = "Sound plays only over a direct (WebRTC) connection; this connection carries the picture only."
 
 /**
  * The live desktop over WebRTC (mobd docs/desktop-streaming.md): one non-trickle POST /stream with
@@ -62,6 +83,20 @@ class StreamSession(context: Context) : LiveSession {
 
     private val _modifiers = MutableStateFlow<Set<Int>>(emptySet())
     override val modifiers: StateFlow<Set<Int>> = _modifiers
+
+    private val _sound = MutableStateFlow<LiveSound>(LiveSound.None)
+    val sound: StateFlow<LiveSound> = _sound
+
+    /** The user turned sound on in this view; kept through reconnects, cleared when the view closes. */
+    private var wantSound = false
+    private val audioManager = appContext.getSystemService(AudioManager::class.java)
+    private val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+        .setAudioAttributes(MEDIA)
+        // A call or another app taking the speaker turns sound off; the user turns it on again.
+        .setOnAudioFocusChangeListener { change ->
+            if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) main.post { setSound(false) }
+        }
+        .build()
     override val pixelScroll: Boolean get() = true
 
     private val main = Handler(Looper.getMainLooper())
@@ -88,8 +123,9 @@ class StreamSession(context: Context) : LiveSession {
     /** [onUnauthorized] runs on the main thread when mobd refuses the device token. */
     /** [preferWebSocket]: the WebSocket carried this machine's last session; race it after 1 s. */
     /** [sessionId]: the conversation's desktop (servers with `sessionDesktops`), sent on POST /stream. */
-    fun connect(client: ApiClient, quality: LiveQuality, canResize: Boolean, screen: Pair<Int, Int>, control: Boolean = false, preferWebSocket: Boolean = false, sessionId: String? = null, onUnauthorized: () -> Unit = {}) {
-        disconnect()
+    /** [audio]: mobd shares its sound (`streamAudio`); the view offers it, off until [setSound]. */
+    fun connect(client: ApiClient, quality: LiveQuality, canResize: Boolean, screen: Pair<Int, Int>, control: Boolean = false, preferWebSocket: Boolean = false, sessionId: String? = null, audio: Boolean = false, onUnauthorized: () -> Unit = {}) {
+        stop(keepSound = true)
         this.canResize = canResize
         fallbackSize = screen
         val n = ++attempt
@@ -97,7 +133,7 @@ class StreamSession(context: Context) : LiveSession {
         _stats.value = StreamStats()
         opened = target()
         Log.add("live view: WebRTC to ${client.baseUrl} at ${opened.first}×${opened.second} (${quality.wire})")
-        conn = Conn(n, client, quality, control, preferWebSocket, sessionId, onUnauthorized).also { it.start() }
+        conn = Conn(n, client, quality, control, preferWebSocket, sessionId, audio, onUnauthorized).also { it.start() }
     }
 
     /** The live view cannot start here (mobd without the `stream` feature); says why. */
@@ -106,7 +142,15 @@ class StreamSession(context: Context) : LiveSession {
         _state.value = LiveState(LiveStatus.Error, message)
     }
 
-    override fun disconnect() {
+    /** Ends the live view; sound goes with it. */
+    override fun disconnect() = stop(keepSound = false)
+
+    /** Ends the session for a reconnect in the same view (a new quality): the sound choice stays. */
+    fun reconnecting() = stop(keepSound = true)
+
+    private fun stop(keepSound: Boolean) {
+        if (!keepSound && wantSound) setSound(false)
+        _sound.value = LiveSound.None
         attempt++
         main.removeCallbacks(resizeTask)
         val c = conn ?: return
@@ -115,6 +159,29 @@ class StreamSession(context: Context) : LiveSession {
         _modifiers.value = emptySet()
         _state.value = LiveState(LiveStatus.Idle, "Disconnected")
         _stats.value = StreamStats()
+    }
+
+    /** Turns the office computer's sound on or off. Off stops mobd's capture, not just playback. */
+    fun setSound(on: Boolean) {
+        wantSound = on
+        audible(on)
+        val s = _sound.value
+        if (s == LiveSound.None || s is LiveSound.Unavailable) return
+        _sound.value = if (on) LiveSound.Starting else LiveSound.Off
+        conn?.sendSound(on)
+    }
+
+    /** Local playback follows the user's choice; audio focus is held only while it plays. */
+    private fun audible(on: Boolean) {
+        if (on) {
+            audioManager.requestAudioFocus(focus)
+            shared(appContext).third.setSpeakerMute(false)
+            playback.start()
+        } else {
+            created?.third?.setSpeakerMute(true)
+            audioManager.abandonAudioFocusRequest(focus)
+            playback.stop()?.let(Log::add)
+        }
     }
 
     fun addSink(sink: VideoSink) {
@@ -149,7 +216,7 @@ class StreamSession(context: Context) : LiveSession {
             opened = want
             c.nudge()
         } else {
-            connect(c.client, c.quality, canResize, fallbackSize, _state.value.control, c.via == WEBSOCKET, c.sessionId, c.onUnauthorized)
+            connect(c.client, c.quality, canResize, fallbackSize, _state.value.control, c.via == WEBSOCKET, c.sessionId, c.audio, c.onUnauthorized)
         }
     }
 
@@ -252,8 +319,10 @@ class StreamSession(context: Context) : LiveSession {
         val takeControl: Boolean,
         val preferWebSocket: Boolean,
         val sessionId: String?,
+        val audio: Boolean,
         val onUnauthorized: () -> Unit,
     ) {
+        var audioReady = false
         /** The transport that won; everything sent goes there. */
         var via: String? = null
         var player: WsPlayer? = null
@@ -361,12 +430,18 @@ class StreamSession(context: Context) : LiveSession {
                 MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO,
                 RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY),
             )
+            if (audio) pc.addTransceiver(
+                MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO,
+                RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY),
+            )
             control = pc.createDataChannel("control", DataChannel.Init())
             input = pc.createDataChannel("input", DataChannel.Init())
             pointer = pc.createDataChannel("pointer", DataChannel.Init().apply { ordered = false; maxRetransmits = 0 })
             control?.registerObserver(object : DataChannel.Observer {
                 override fun onBufferedAmountChange(previous: Long) {}
-                override fun onStateChange() {}
+                override fun onStateChange() {
+                    if (control?.state() == DataChannel.State.OPEN) post { if (wantSound) sendSound(true) }
+                }
                 override fun onMessage(buffer: DataChannel.Buffer) {
                     if (buffer.binary) return
                     val bytes = ByteArray(buffer.data.remaining()).also { buffer.data.get(it) }
@@ -394,7 +469,7 @@ class StreamSession(context: Context) : LiveSession {
             if (blockWebRTC) sdp = withoutCandidates(sdp)
             val (w, h) = opened
             val req = Request.Builder().url(client.url("stream"))
-                .post(openRequest(sdp, w, h, quality, sessionId).toRequestBody("application/json".toMediaType()))
+                .post(openRequest(sdp, w, h, quality, sessionId, audio).toRequestBody("application/json".toMediaType()))
                 .build()
             client.okHttpClient.newCall(req).enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) = post {
@@ -426,6 +501,16 @@ class StreamSession(context: Context) : LiveSession {
 
         fun accept(answer: StreamAnswer) {
             session = answer.session
+            if (audio) {
+                if (answer.audio == "ready") {
+                    audioReady = true
+                    _sound.value = if (wantSound) LiveSound.Starting else LiveSound.Off
+                } else {
+                    wantSound = false
+                    audible(false)
+                    _sound.value = LiveSound.Unavailable(answer.audioReason ?: "This office computer cannot share its sound.")
+                }
+            }
             addresses = candidateAddresses(answer.answer.orEmpty())
             Log.add("live view: answered in ${ms()} ms, ${answer.width}×${answer.height}")
             main.postDelayed(grace, if (preferWebSocket) REMEMBERED_GRACE_MS else WEBRTC_GRACE_MS)
@@ -484,6 +569,10 @@ class StreamSession(context: Context) : LiveSession {
                 player = null
             } else {
                 dropWebRTC()
+                if (audioReady) {
+                    audioReady = false
+                    _sound.value = LiveSound.Unavailable(NO_WS_SOUND)
+                }
             }
             onTransport?.invoke(t)
         }
@@ -516,6 +605,7 @@ class StreamSession(context: Context) : LiveSession {
                 _state.value = s.copy(status = LiveStatus.Connected, detail = "", width = w, height = h)
                 main.postDelayed(statsTick, 1000)
                 if (takeControl) setControl(true)
+                if (wantSound) sendSound(true)
                 main.removeCallbacks(resizeTask)
                 main.postDelayed(resizeTask, 300) // views laid out while connecting
             } else if (w != s.width || h != s.height) {
@@ -532,7 +622,23 @@ class StreamSession(context: Context) : LiveSession {
                 is Control.Ended -> fail(m.message)
                 is Control.Error -> Log.add("live view: ${m.about}: ${m.message}")
                 is Control.Cursor -> _cursor.value = m.x to m.y
+                is Control.Audio -> when {
+                    m.state == "on" && wantSound -> _sound.value = LiveSound.On
+                    m.state == "off" && !wantSound -> _sound.value = LiveSound.Off
+                    m.state == "unavailable" || m.state == "error" -> {
+                        wantSound = false
+                        audible(false)
+                        val why = m.message.ifBlank { "The sound stopped." }
+                        Log.add("live view sound: $why")
+                        _sound.value = if (m.state == "error") LiveSound.Failed(why) else LiveSound.Unavailable(why)
+                    }
+                }
             }
+        }
+
+        fun sendSound(on: Boolean) {
+            if (!audioReady || via != WEBRTC) return
+            send(control, audioMessage(on))
         }
 
         fun send(channel: DataChannel?, text: String): Boolean {
@@ -639,20 +745,41 @@ class StreamSession(context: Context) : LiveSession {
         /** Where the WebSocket was needed last time. Not zero: TCP opens faster than WebRTC, so a race from
          * the start would keep the machine on the WebSocket even where WebRTC works again. */
         private const val REMEMBERED_GRACE_MS = 1000L
-        private var created: Pair<EglBase, PeerConnectionFactory>? = null
+        private var created: Triple<EglBase, PeerConnectionFactory, JavaAudioDeviceModule>? = null
+
+        /** Media playback, like a video app: the office computer's sound is not a call. */
+        private val MEDIA: AudioAttributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+            .build()
+
+        /** What the sound played, logged when it is turned off (Settings → Log). */
+        private val playback = PlaybackMeter()
 
         /** One EGL context and factory for the process; libwebrtc initializes once. */
         @Synchronized
-        private fun shared(context: Context): Pair<EglBase, PeerConnectionFactory> = created ?: run {
+        private fun shared(context: Context): Triple<EglBase, PeerConnectionFactory, JavaAudioDeviceModule> = created ?: run {
             PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions.builder(context).createInitializationOptions())
             val egl = EglBase.create()
+            // Playback only, as media in stereo: WebRTC's defaults are for calls (voice routing,
+            // echo cancelling, the microphone). It never records; muted until sound is turned on.
+            val adm = JavaAudioDeviceModule.builder(context)
+                .setAudioAttributes(MEDIA)
+                .setUseStereoOutput(true)
+                .setUseHardwareAcousticEchoCanceler(false)
+                .setUseHardwareNoiseSuppressor(false)
+                .setPlaybackSamplesReadyCallback { s -> playback.add(s.data, s.channelCount) }
+                .createAudioDeviceModule()
+            adm.setAudioRecordEnabled(false)
+            adm.setSpeakerMute(true)
             // Receive-only: the encoder factory is unused but the builder wants one. The decoder
             // factory includes the platform software H.264 decoder emulators need.
             val factory = PeerConnectionFactory.builder()
                 .setVideoDecoderFactory(DefaultVideoDecoderFactory(egl.eglBaseContext))
                 .setVideoEncoderFactory(DefaultVideoEncoderFactory(egl.eglBaseContext, true, true))
+                .setAudioDeviceModule(adm)
                 .createPeerConnectionFactory()
-            (egl to factory).also { created = it }
+            Triple(egl, factory, adm).also { created = it }
         }
     }
 }
