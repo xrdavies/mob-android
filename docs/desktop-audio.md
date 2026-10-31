@@ -1,6 +1,6 @@
 # Remote desktop audio (Android)
 
-Status: stage 1 (WebRTC) implemented on `feat/remote-audio`; WebSocket audio planned (stage 2).
+Status: implemented on `feat/remote-audio` (WebRTC). No sound over the WebSocket fallback, by decision.
 
 You hear the office computer's sound in the live view on Android phones and tablets. The
 protocol, stages and capture are in [mobd's desktop audio doc](https://github.com/xrdavies/mobd/blob/main/docs/desktop-audio.md):
@@ -32,7 +32,7 @@ callback (`PlaybackMeter`).
 - The answer's `audio` sets `sound` (`LiveSound`): `Off`, or `Unavailable(reason)`.
 - `setSound` sends the control message.
 - mobd's `audio` messages move it to `On`, `Unavailable` or `Failed`.
-- Over the WebSocket, sound is unavailable until stage 2.
+- Over the WebSocket, sound is unavailable by decision (mobd's doc: sound that stutters is worse than none).
 
 Turning sound on and off:
 
@@ -54,9 +54,3 @@ A speaker icon, green while on, a spinner while starting; when unavailable it ex
 
 Still to check on a phone: no microphone indicator, media volume, wired and Bluetooth output,
 calls, leaving the app, and audible delay.
-
-## Stage 2 (planned)
-
-WebSocket audio frames (type `2`), decoded with the platform Opus `MediaCodec` (configured with
-the Opus header, pre-skip and seek pre-roll), played through a streaming `AudioTrack` with about
-60 ms of buffer; video keeps its current timing.

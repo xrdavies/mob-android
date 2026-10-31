@@ -58,7 +58,7 @@ sealed class LiveSound {
     val isOn get() = this == On || this == Starting
 }
 
-private const val NO_WS_SOUND = "Sound needs a direct connection; it is not available over the WebSocket yet."
+private const val NO_WS_SOUND = "Sound plays only over a direct (WebRTC) connection; this connection carries the picture only."
 
 /**
  * The live desktop over WebRTC (mobd docs/desktop-streaming.md): one non-trickle POST /stream with
