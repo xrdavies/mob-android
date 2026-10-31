@@ -25,6 +25,9 @@ Mob for Android (Kotlin, Jetpack Compose). **Mob** is mob programming with your 
 
 ## Live desktop
 
+System audio is not implemented. The [remote audio draft](docs/desktop-audio.md)
+covers both transports, Android playback/focus and audio/video synchronization.
+
 A thumbnail drawer under the Chat top bar (hidden by default, toggled with the monitor button; always view-only) and a full-screen view with a **View / Control** switch: tap = click, long-press = right-click, drag = drag, two fingers = scroll, pinch = zoom; a keys bar adds ⌘ ⌥ ⌃ ⇧ (latched for the next key), Esc, Tab, arrows and typing the phone's clipboard. Control is released when the app stops.
 
 - **WebRTC**: `POST /stream` with a non-trickle offer; receive-only H.264 through libwebrtc, drawn in a `TextureView`; input on the `input` / `pointer` / `control` data channels, with points normalized to the desktop inside the letterbox. Protocol: [mobd desktop streaming](https://github.com/xrdavies/mobd/blob/main/docs/desktop-streaming.md).
