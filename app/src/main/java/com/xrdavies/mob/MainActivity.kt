@@ -61,6 +61,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        // No sound from the background: the live view is a foreground thing.
+        if (appState.stream.sound.value.isOn) appState.stream.setSound(false)
         appState.files.foreground = false
         appState.files.pauseAll()
         super.onStop()
