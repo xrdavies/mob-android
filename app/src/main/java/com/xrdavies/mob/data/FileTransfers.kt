@@ -7,6 +7,7 @@ import io.tus.java.client.TusURLStore
 import okhttp3.Call
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
@@ -20,13 +21,24 @@ import java.util.concurrent.TimeUnit
 
 const val FILE_CHUNK = 4 * 1024 * 1024
 data class RemoteFile(val name: String, val size: Long, val modified: String)
-data class FileListing(val directory: String, val maxUploadSize: Long, val files: List<RemoteFile>)
+data class RemoteFolder(val name: String, val modified: String)
+/** folders is present when mobd has fileFolders. */
+data class FileListing(val directory: String, val maxUploadSize: Long, val files: List<RemoteFile>, val folders: List<RemoteFolder>? = null, val path: String? = null)
+
+/** Paths inside mobd's shared folder are "/"-separated; "" is the folder itself. */
+fun joinRemote(dir: String, name: String) = if (dir.isEmpty()) name else "$dir/$name"
+fun parentRemote(path: String) = path.substringBeforeLast('/', "")
 data class FileReceipt(val name: String, val size: Long, val sha256: String)
 data class FileTransfer(
     val id: String, val machine: String, val base: String, val upload: Boolean,
     val name: String, val size: Long, val sha256: String, val bytes: Long = 0,
     val state: String = "paused", val uploadUrl: String? = null, val etag: String? = null,
     val message: String? = null,
+    /** Where the file is in mobd's shared folder; null for transfers made before folders. */
+    val remotePath: String? = null,
+    /** A finished download: its content:// URI in Downloads (or a file path before Android 10). */
+    val localUri: String? = null,
+    val finishedAt: Long? = null,
 )
 
 fun uploadLocation(base: HttpUrl, value: String, creation: Boolean = false): HttpUrl {
@@ -81,9 +93,20 @@ class FileTransferClient(private val api: ApiClient) {
         }
     }
 
-    fun list(): FileListing = execute(Request.Builder().url(api.url("files")).build()).use {
-        check(it); gson.fromJson(it.body!!.charStream(), FileListing::class.java)
+    fun list(path: String = ""): FileListing {
+        val url = api.baseUrl.newBuilder().addPathSegment("files").apply { if (path.isNotEmpty()) addQueryParameter("path", path) }.build()
+        return execute(Request.Builder().url(url).build()).use { check(it); gson.fromJson(it.body!!.charStream(), FileListing::class.java) }
     }
+
+    /** mobd's URL for a shared path, each segment encoded on its own. */
+    private fun fileUrl(path: String) = api.baseUrl.newBuilder().addPathSegment("files").apply { path.split('/').forEach { addPathSegment(it) } }.build()
+
+    fun rename(path: String, newName: String) {
+        val body = gson.toJson(mapOf("newName" to newName)).toRequestBody("application/json".toMediaType())
+        execute(Request.Builder().url(fileUrl(path).newBuilder().addPathSegment("rename").build()).post(body).build()).use { check(it) }
+    }
+
+    fun delete(path: String) { execute(Request.Builder().url(fileUrl(path)).delete().build()).use { check(it) } }
 
     private fun complete(url: HttpUrl): FileReceipt? = execute(Request.Builder()
         .url(url.newBuilder().addPathSegment("complete").build()).post(ByteArray(0).toRequestBody()).build()).use {
@@ -127,7 +150,9 @@ class FileTransferClient(private val api: ApiClient) {
             override fun remove(fingerprint: String) {}
         })
         val upload = TusUpload(file)
-        upload.metadata = mapOf("filename" to task.name, "sha256" to task.sha256)
+        // A file in a folder names its place; older mobd takes only a file name at the top.
+        upload.metadata = mapOf("filename" to task.name, "sha256" to task.sha256) +
+            (task.remotePath?.takeIf { '/' in it }?.let { mapOf("relativePath" to it) } ?: emptyMap())
         val uploader = try {
             if (destination != null) tus.beginOrResumeUploadFromURL(upload, destination.toUrl()) else tus.createUpload(upload)
         } catch (e: Exception) { upload.inputStream.close(); throw e }
@@ -156,7 +181,7 @@ class FileTransferClient(private val api: ApiClient) {
     }
 
     fun download(task: FileTransfer, file: File, identity: (Long, String, String) -> Unit, progress: (Long) -> Unit) {
-        val url = api.baseUrl.newBuilder().addPathSegment("files").addPathSegment(task.name).build()
+        val url = fileUrl(task.remotePath ?: task.name)
         val (size, etag, sha) = execute(Request.Builder().url(url).head().build()).use { response ->
             check(response)
             val size = response.header("Content-Length")?.toLongOrNull() ?: throw IOException("Missing file size")
