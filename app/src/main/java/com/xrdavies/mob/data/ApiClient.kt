@@ -49,6 +49,15 @@ interface MobApi {
     @GET("sessions/{id}")
     suspend fun getSession(@Path("id") id: String, @Query("since") since: Long? = null): SessionDetail
 
+    /** A page of whole turns ([limit], [before]) or the changes [since] a revision (mobd with "sessionHistory"). */
+    @GET("sessions/{id}/history")
+    suspend fun sessionHistory(
+        @Path("id") id: String,
+        @Query("since") since: Long? = null,
+        @Query("before") before: String? = null,
+        @Query("limit") limit: Int = 20,
+    ): SessionDetail
+
     @PATCH("sessions/{id}")
     suspend fun patchSession(@Path("id") id: String, @Body request: PatchSessionRequest): Session
 
@@ -105,6 +114,9 @@ class UnauthorizedException : HttpStatusException(401, NEEDS_PAIRING)
 
 fun Throwable.isUnauthorized(): Boolean =
     (this is HttpStatusException && code == 401) || (this is HttpException && code() == 401)
+
+/** mobd could not be reached at all (no network, the office computer asleep or off). */
+fun Throwable.isUnreachable(): Boolean = this is java.io.IOException && this !is HttpStatusException
 
 /** A readable message for any request failure, including Retrofit HTTP errors. */
 fun Throwable.readable(): String = when (this) {

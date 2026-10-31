@@ -4,6 +4,7 @@ import android.content.SharedPreferences
 import com.xrdavies.mob.data.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -50,8 +51,55 @@ data class ChatDetail(
                 pick(base.questions, d.questions.orEmpty()) { it.taskId }, d.rev ?: base.rev,
             )
         }
+
+        /** Saved turns as a conversation, with [session]'s metadata. */
+        fun of(session: Session, turns: List<StoredTurn>, rev: Long?) = ChatDetail(
+            session.copy(messages = turns.flatMap { it.messages }), turns.map { it.task },
+            turns.flatMap { it.activities }, turns.flatMap { it.questions }, rev,
+        )
+
+        /**
+         * [d]'s turns merged into [base] by task ID, keeping the copy with the higher `rev`. A turn
+         * not held yet joins only when its `seq` is at least [from], so a changed turn older than the
+         * held range never lands at the end as [current]. Ordered by `seq`; metadata from [d],
+         * revision from [base].
+         */
+        fun mergedTurns(d: ChatDetail, base: ChatDetail?, from: Long): ChatDetail {
+            val held = base?.tasks.orEmpty().associateBy { it.id }
+            val fresh = d.tasks.filter { t ->
+                val old = held[t.id]
+                if (old != null) (old.rev ?: 0) <= (t.rev ?: 0) else (t.seq ?: from) >= from
+            }.map { it.id }.toSet()
+            val mine = base?.turns()?.filterNot { it.task.id in fresh }.orEmpty()
+            return of(d.session, (mine + d.turns(fresh)).sortedBy { it.task.seq ?: 0 }, base?.rev)
+        }
     }
+
+    /** The turns (all, or those named), in order. */
+    fun turns(ids: Set<String>? = null): List<StoredTurn> {
+        val messages = session.messages.orEmpty().groupBy { it.taskId }
+        val steps = activities.groupBy { it.taskId }
+        val asked = questions.groupBy { it.taskId }
+        return tasks.filter { ids == null || it.id in ids }.map {
+            StoredTurn(it, messages[it.id].orEmpty(), steps[it.id].orEmpty(), asked[it.id].orEmpty())
+        }
+    }
+
+    val oldestSeq: Long? get() = tasks.mapNotNull { it.seq }.minOrNull()
 }
+
+/** Whether the open conversation is in step with mobd (see docs/conversation-history.md). */
+enum class SyncState { None, Syncing, Offline, Failed }
+
+/** A sync result before it is applied: the conversation to show and the turns to save. */
+private class Synced(
+    val detail: ChatDetail,
+    val turns: List<StoredTurn>,
+    val cursors: Map<String, String>,
+    val replace: Boolean,
+    val storedFrom: Long?,
+    val before: String?,
+)
 
 /**
  * Chats on the active machine: the list, the open conversation, and every action on them.
@@ -62,6 +110,8 @@ class ChatStore(
     private val scope: CoroutineScope,
     private val prefs: SharedPreferences,
     private val onUnauthorized: (machine: String, token: String?) -> Unit,
+    /** The local copy; keyed by [historyKey], the machine's serverId, so every address shares one. */
+    private val history: HistoryStore = MemoryHistory(),
 ) {
     private var api: ApiClient? = null
     private var machineId = ""
@@ -94,6 +144,35 @@ class ChatStore(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
+    private val _sync = MutableStateFlow(SyncState.None)
+    val sync: StateFlow<SyncState> = _sync
+
+    private val _olderLoading = MutableStateFlow(false)
+    val olderLoading: StateFlow<Boolean> = _olderLoading
+
+    private val _olderError = MutableStateFlow<String?>(null)
+    val olderError: StateFlow<String?> = _olderError
+
+    private var historyKey = ""
+
+    /** mobd serves paged history ("sessionHistory"); null until /health answers. Only then is the local copy used. */
+    private var paged: Boolean? = null
+
+    /** The open conversation's oldest saved turn, and mobd's cursor for the page before it. */
+    private var storedFrom: Long? = null
+    private var before: String? = null
+    private var saveTimer: Job? = null
+
+    /** Writes to the local copy, run one after another in order. */
+    private val writes = Channel<suspend () -> Unit>(Channel.UNLIMITED)
+
+    init {
+        scope.launch { for (write in writes) runCatching { write() }.onFailure { Log.error("local copy: ${it.readable()}") } }
+    }
+
+    /** Turns before the oldest shown one exist, saved or on mobd. */
+    fun hasOlder(d: ChatDetail? = _detail.value): Boolean = paged == true && (d?.tasks?.firstOrNull()?.seq ?: 1) > 1
+
     private var poll: Job? = null
     private var listPoll: Job? = null
 
@@ -107,7 +186,9 @@ class ChatStore(
     /** True while the machine's global event stream is connected; polling then only backs it up. */
     var live = false
 
-    fun attach(client: ApiClient, machine: String, enabled: Boolean) {
+    /** [historyKey] names the machine's local copy: its serverId from pairing, else the machine ID. */
+    fun attach(client: ApiClient, machine: String, enabled: Boolean, historyKey: String? = null) {
+        if (saveTimer != null) saveCurrent()
         generation++
         poll?.cancel()
         listPoll?.cancel()
@@ -120,6 +201,9 @@ class ChatStore(
         _detail.value = null
         _currentId.value = null
         cache.clear()
+        _sync.value = SyncState.None
+        paged = null
+        this.historyKey = historyKey ?: machine
         if (api == null) return
         val gen = generation
         listPoll = scope.launch {
@@ -165,7 +249,13 @@ class ChatStore(
         val gen = generation
         try {
             val list = client.api.listSessions().sessions.orEmpty()
-            if (gen == generation) _sessions.value = list
+            if (gen == generation) {
+                _sessions.value = list
+                if (_sync.value == SyncState.Offline && _currentId.value == null) _sync.value = SyncState.None
+                // Conversations deleted while this device was away leave the local copy too.
+                val key = historyKey
+                if (paged == true) enqueue { history.prune(key, list.map { it.id }.toSet()) }
+            }
             if (_archived.value != null) {
                 val arch = client.api.listSessions("true").sessions.orEmpty()
                 if (gen == generation) _archived.value = arch
@@ -175,6 +265,12 @@ class ChatStore(
         } catch (e: Exception) {
             // The health check reports connection problems; the list just keeps its last state.
             if (e.isUnauthorized() && gen == generation) unauthorized()
+            // Unreachable from the start: the conversations saved on this device can still be read.
+            if (!e.isUnreachable() || gen != generation || _sessions.value.isNotEmpty()) return
+            val saved = history.list(historyKey)
+            if (gen != generation || _sessions.value.isNotEmpty() || saved.isEmpty()) return
+            _sessions.value = saved.sortedByDescending { it.updatedAt.orEmpty() }
+            if (_currentId.value == null) _sync.value = SyncState.Offline
         }
     }
 
@@ -188,8 +284,15 @@ class ChatStore(
     /** Opens a conversation; null starts a new chat. */
     fun open(id: String?) {
         _detail.value?.let(::remember)
+        if (saveTimer != null) saveCurrent()
         _currentId.value = id
-        _detail.value = id?.let { cache[it] }
+        // With paged history the local copy replaces the memory cache.
+        _detail.value = if (paged == true) null else id?.let { cache[it] }
+        storedFrom = null
+        before = null
+        _olderLoading.value = false
+        _olderError.value = null
+        if (_sync.value != SyncState.Offline) _sync.value = SyncState.None
         _cancelling.value = false
         prefs.edit().putString(key(), id).apply()
         poll?.cancel()
@@ -205,8 +308,11 @@ class ChatStore(
         if (cache.size > 8) cache.remove(cache.keys.first())
     }
 
-    /** Fetches the open conversation now and keeps refreshing it (fast while a turn runs). */
-    private fun follow(id: String) {
+    /**
+     * Fetches the open conversation now and keeps refreshing it (fast while a turn runs).
+     * [indicate] shows "Syncing…" (returning to the app, reconnecting); routine polls show nothing.
+     */
+    private fun follow(id: String, indicate: Boolean = false) {
         poll?.cancel()
         val client = api ?: return
         val gen = generation
@@ -214,14 +320,37 @@ class ChatStore(
             var first = true
             while (isActive && gen == generation && _currentId.value == id) {
                 try {
-                    val d = client.api.getSession(id, _detail.value?.rev)
+                    if (paged == null) paged = runCatching { client.api.getHealth() }.getOrNull()?.features?.contains("sessionHistory")
+                    if (first && paged != false && _detail.value == null) {
+                        // The saved copy shows at once; then only what changed since it is fetched.
+                        val saved = history.load(historyKey, id, null, PAGE)
+                        if (gen != generation || _currentId.value != id) break
+                        if (saved != null && saved.turns.isNotEmpty() && _detail.value == null) {
+                            _detail.value = ChatDetail.of(saved.session, saved.turns, saved.syncRev.takeIf { it > 0 })
+                            storedFrom = saved.oldest
+                            before = saved.cursor
+                            // Saved by a mobd with paged history, so it is one even while /health does not answer.
+                            if (paged == null) paged = true
+                            _loading.value = false
+                        }
+                    }
+                    if (first && paged == true && (indicate || _detail.value != null)) _sync.value = SyncState.Syncing
+                    var synced: Synced? = null
+                    val fresh = if (paged == true) {
+                        synced = fetchHistory(client, id)
+                        synced.detail
+                    } else {
+                        val d = client.api.getSession(id, _detail.value?.rev)
+                        if (gen != generation || _currentId.value != id) break
+                        ChatDetail.merged(d, _detail.value)
+                    }
                     if (gen != generation || _currentId.value != id) break
-                    val fresh = ChatDetail.merged(d, _detail.value)
                     val shown = _detail.value
                     // A snapshot fetched before newer stream events must not replace them.
                     val stale = shown != null && shown.current?.id == fresh.current?.id && fresh.busy &&
                         (fresh.current?.eventId ?: 0) < (shown.current?.eventId ?: 0)
-                    if (!stale) _detail.value = fresh
+                    if (!stale) synced?.let(::apply) ?: run { _detail.value = fresh }
+                    _sync.value = SyncState.None
                     if (_detail.value?.busy != true) _cancelling.value = false
                     followTurn(client, gen)
                 } catch (e: kotlinx.coroutines.CancellationException) {
@@ -231,12 +360,16 @@ class ChatStore(
                         if (gen == generation) fail(e)
                         break
                     }
-                    if (first && e is retrofit2.HttpException && e.code() == 404) {
+                    if ((first || paged == true) && e is retrofit2.HttpException && e.code() == 404) {
                         // The saved chat was deleted elsewhere.
                         if (gen == generation) removeSession(id)
                         break
                     }
-                    if (first && gen == generation) fail(e)
+                    if (paged == true && _detail.value != null && gen == generation) {
+                        // The saved copy stays readable; the status says why it may be behind.
+                        _sync.value = if (e.isUnreachable()) SyncState.Offline else SyncState.Failed
+                        Log.error("sync failed: ${e.readable()}")
+                    } else if (first && gen == generation) fail(e)
                 } finally {
                     if (first) _loading.value = false
                     first = false
@@ -254,7 +387,141 @@ class ChatStore(
     }
 
     /** Re-reads the open conversation now (after an action) without clearing it. */
-    private fun reload() = _currentId.value?.let(::follow)
+    private fun reload(indicate: Boolean = false) = _currentId.value?.let { follow(it, indicate) }
+
+    /** Returning to the app: catches up with what changed meanwhile, showing "Syncing…". */
+    fun resync() {
+        if (paged != true || _sync.value == SyncState.Syncing) return
+        refreshSessions()
+        reload(indicate = true)
+    }
+
+    /**
+     * What changed since the saved revision, merged into the open conversation; without a saved
+     * copy, or when mobd answers `reset`, the newest page replaces it.
+     */
+    private suspend fun fetchHistory(client: ApiClient, id: String): Synced {
+        val rev = _detail.value?.rev
+        if (rev != null && _detail.value?.tasks?.isNotEmpty() == true) {
+            val d = client.api.sessionHistory(id, since = rev, limit = 50)
+            val held = _detail.value?.takeIf { _currentId.value == id } ?: throw kotlinx.coroutines.CancellationException()
+            if (d.reset != true) {
+                val changes = ChatDetail.merged(d, null)
+                val from = held.tasks.firstOrNull()?.seq ?: 0
+                val merged = ChatDetail.mergedTurns(changes, held, from).copy(rev = d.rev)
+                // A changed turn inside the saved range is saved even when it is not shown yet.
+                val low = storedFrom ?: from
+                val ids = changes.tasks.filter { (it.seq ?: low) >= low }.map { it.id }.toSet()
+                return Synced(merged, changes.turns(ids), emptyMap(), false, storedFrom ?: from, before)
+            }
+            Log.add("history reset by mobd; loading the newest page")
+        }
+        val page = client.api.sessionHistory(id, limit = PAGE)
+        val fresh = ChatDetail.merged(page, null)
+        val cursors = listOfNotNull(fresh.tasks.firstOrNull()?.id?.let { first -> page.before?.let { first to it } }).toMap()
+        return Synced(fresh, fresh.turns(), cursors, true, fresh.oldestSeq, page.before)
+    }
+
+    private fun apply(s: Synced) {
+        _detail.value = s.detail
+        storedFrom = s.storedFrom
+        before = s.before
+        // A running turn is saved every few seconds, not on every poll.
+        val running = s.turns.filter { Status.busy(it.task.status) }.map { it.task.id }.toSet()
+        save(s.turns.filterNot { it.task.id in running }, s.cursors, s.replace)
+        if (running.isNotEmpty()) saveSoon()
+    }
+
+    /** Loads the turns before the oldest shown one: from the local copy, else from mobd. */
+    fun loadOlder() {
+        val shown = _detail.value ?: return
+        val from = shown.tasks.firstOrNull()?.seq ?: return
+        if (!hasOlder(shown) || _olderLoading.value) return
+        val id = shown.session.id
+        val gen = generation
+        _olderLoading.value = true
+        _olderError.value = null
+        scope.launch {
+            try {
+                var page: ChatDetail? = null
+                val stored = storedFrom
+                if (stored != null && stored < from) {
+                    history.load(historyKey, id, from, PAGE)?.takeIf { it.turns.isNotEmpty() }?.let { page = ChatDetail.of(shown.session, it.turns, null) }
+                }
+                if (page == null) {
+                    val cursor = before ?: throw IllegalStateException("mobd gave no cursor for older messages")
+                    val client = api ?: return@launch
+                    val answer = client.api.sessionHistory(id, before = cursor, limit = PAGE)
+                    if (gen != generation || _currentId.value != id) return@launch
+                    val fresh = ChatDetail.merged(answer, null)
+                    storedFrom = fresh.oldestSeq
+                    before = answer.before
+                    val cursors = listOfNotNull(fresh.tasks.firstOrNull()?.id?.let { first -> answer.before?.let { first to it } }).toMap()
+                    page = fresh
+                    save(fresh.turns(), cursors)
+                }
+                val current = _detail.value
+                val older = page
+                if (gen != generation || _currentId.value != id || current == null || older == null) return@launch
+                // Older pages never move the sync baseline or the session metadata.
+                val merged = ChatDetail.mergedTurns(older, current, older.oldestSeq ?: from)
+                _detail.value = merged.copy(session = current.session.copy(messages = merged.session.messages))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (gen != generation || _currentId.value != id) return@launch
+                Log.error("loading older turns failed: ${e.readable()}")
+                _olderError.value = if (e.isUnreachable()) "Older messages aren't available offline" else "Couldn't load older messages"
+            } finally {
+                if (gen == generation && _currentId.value == id) _olderLoading.value = false
+            }
+        }
+    }
+
+    private fun enqueue(write: suspend () -> Unit) {
+        writes.trySend(write)
+    }
+
+    /** Saves [turns] and the session row of the open conversation. */
+    private fun save(turns: List<StoredTurn>, cursors: Map<String, String> = emptyMap(), replace: Boolean = false) {
+        val d = _detail.value
+        if (paged != true || d == null || (turns.isEmpty() && !replace)) return
+        val key = historyKey
+        val keep = setOf(d.session.id) + _sessions.value.filter { Status.busy(it.status) }.map { it.id }
+        enqueue { history.save(key, d.session, d.rev ?: 0, turns, cursors, replace, keep) }
+    }
+
+    /** Saves the current turn now (it finished, or the conversation is left). */
+    private fun saveCurrent() {
+        saveTimer?.cancel()
+        saveTimer = null
+        val d = _detail.value ?: return
+        val t = d.current ?: return
+        save(d.turns(setOf(t.id)))
+    }
+
+    /** While a turn runs, saves it at most every 5 seconds rather than per event. */
+    private fun saveSoon() {
+        if (paged != true || saveTimer != null) return
+        val id = _currentId.value ?: return
+        saveTimer = scope.launch {
+            delay(5_000)
+            if (_currentId.value != id) return@launch
+            saveTimer = null
+            saveCurrent()
+        }
+    }
+
+    /** Deletes a machine's local copy (the machine was removed, or mobd no longer accepts this device). */
+    fun forget(historyKey: String) = enqueue { history.remove(historyKey) }
+
+    /** The local copy's size, and clearing it (Settings). */
+    suspend fun savedSize(): Long = history.size()
+
+    fun clearSaved(done: () -> Unit) = enqueue {
+        history.clear()
+        done()
+    }
 
     private fun stopStream() {
         stream?.cancel()
@@ -335,6 +602,7 @@ class ChatStore(
             session = session.copy(status = ev.status)
         }
         _detail.value = d.copy(session = session, tasks = d.tasks.map { if (it.id == taskId) t else it }, activities = activities, questions = questions)
+        if (Status.terminal(t.status)) saveCurrent() else saveSoon()
         if (Status.terminal(ev.status)) {
             _cancelling.value = false
             stopStream()
@@ -368,6 +636,8 @@ class ChatStore(
     }
 
     fun removeSession(id: String) {
+        val key = historyKey
+        enqueue { history.remove(key, id) }
         _sessions.value = _sessions.value.filterNot { it.id == id }
         _archived.value = _archived.value?.filterNot { it.id == id }
         if (id == _currentId.value) open(null)
@@ -377,7 +647,7 @@ class ChatStore(
     /** After the global stream reconnected past its buffer: refetch everything. */
     fun refreshAll() {
         refreshSessions()
-        reload()
+        reload(indicate = true)
     }
 
     /** Starts a turn; [done] gets true once mobd accepted it (the composer then clears). */
@@ -469,5 +739,10 @@ class ChatStore(
         client.api.deleteSession(s.id).orThrow()
         removeSession(s.id)
         loadSessions()
+    }
+
+    companion object {
+        /** Turns per history page, from mobd or the local copy. */
+        const val PAGE = 20
     }
 }
