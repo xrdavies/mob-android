@@ -23,6 +23,11 @@ Mob for Android (Kotlin, Jetpack Compose). **Mob** is mob programming with your 
 - **Setup warnings**: mobd's readiness checks (Accessibility, Screen Recording, display, agent CLIs) show in the chat header and Settings
 - **Live desktop**: see below
 
+## USB redirection (draft)
+
+The [USB scope document](docs/usb-redirection.md) follows the shared Desktop-to-mobd plan.
+USB redirection is not implemented; phone/tablet USB forwarding is outside its first delivery.
+
 ## Live desktop
 
 System audio is not implemented. The [remote audio draft](docs/desktop-audio.md)
