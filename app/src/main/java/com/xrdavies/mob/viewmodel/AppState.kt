@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
 import com.xrdavies.mob.data.AnswerQuestionRequest
 import com.xrdavies.mob.data.ApiClient
+import com.xrdavies.mob.data.SqliteHistory
 import com.xrdavies.mob.data.DesktopEvent
 import com.xrdavies.mob.data.DesktopState
 import com.xrdavies.mob.data.Health
@@ -86,7 +87,7 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     val apiClient: ApiClient
         get() = _apiClient
 
-    val chat = ChatStore(viewModelScope, prefs, ::markNeedsPairing)
+    val chat = ChatStore(viewModelScope, prefs, ::markNeedsPairing, SqliteHistory(appContext))
 
     /** Conversation desktops on the active machine; empty unless it has `sessionDesktops`. */
     val desktops = DesktopStore(viewModelScope, ::markNeedsPairing)
@@ -186,7 +187,7 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
         _health.value = null
         _isConnected.value = false
         _healthError.value = if (m != null && !ok) NEEDS_PAIRING else null
-        chat.attach(_apiClient, m?.id.orEmpty(), enabled = ok)
+        chat.attach(_apiClient, m?.id.orEmpty(), enabled = ok, historyKey = m?.serverId)
         files.attach(if (ok) _apiClient else null, m?.id.orEmpty())
         // Enabled once health says the server has conversation desktops.
         desktops.attach(_apiClient, m?.id.orEmpty(), enabled = false)
@@ -228,6 +229,7 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
         _machines.value = updated
         gone?.addresses?.forEach { secrets.delete(SecretStore.token(it.id)) } ?: secrets.delete(SecretStore.token(id))
         prefs.edit().remove("session.$id").apply()
+        chat.forget(gone?.serverId ?: id)
         if (id == _activeMachineId.value) {
             _activeMachineId.value = updated.firstOrNull()?.id
             activate()
@@ -304,6 +306,8 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
             val m = _machines.value.firstOrNull { it.id == id } ?: return@launch
             if (m.needsPairing == true || token(m) != token) return@launch
             Log.error("${m.name}: $NEEDS_PAIRING")
+            // Refused: the conversations saved from this machine go too.
+            chat.forget(m.serverId ?: m.id)
             saveMachine(m.withNeedsPairing(true))
         }
     }

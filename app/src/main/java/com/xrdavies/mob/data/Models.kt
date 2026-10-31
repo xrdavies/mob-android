@@ -88,6 +88,10 @@ data class Task(
     val queueReason: String?,
     /** True while the turn waits for the user to answer a question. */
     val waiting: Boolean?,
+    /** The conversation revision of this turn's last change (mobd with "sessionHistory"). */
+    val rev: Long? = null,
+    /** The turn's 1-based position in its conversation; it never changes. */
+    val seq: Long? = null,
 ) {
     val isTerminal get() = Status.terminal(status)
 }
@@ -183,6 +187,11 @@ data class SessionDetail(
     val rev: Long? = null,
     /** False when this answers `since` with only the turns changed after it. */
     val full: Boolean? = null,
+    /** GET /sessions/{id}/history: older turns exist, and [before] fetches the page before this one. */
+    val hasMore: Boolean? = null,
+    val before: String? = null,
+    /** GET /sessions/{id}/history?since=: mobd could not answer; load the newest page again. */
+    val reset: Boolean? = null,
 )
 
 data class Upload(val id: String, val name: String?, val mime: String?, val size: Long?, val url: String?)

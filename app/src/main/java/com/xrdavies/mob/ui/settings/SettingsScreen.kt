@@ -106,6 +106,7 @@ fun SettingsScreen(appState: AppState) {
 
             NotificationsCard(appState)
 
+            SavedConversationsCard(appState)
 
             SettingsCard("Log") {
                 Text("Connections, event streams, live view and errors, for troubleshooting.", style = MaterialTheme.typography.bodyMedium)
@@ -163,6 +164,25 @@ fun SettingsScreen(appState: AppState) {
             },
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
         )
+    }
+}
+
+/** The local copy of conversations (docs/conversation-history.md): its size, and clearing it. */
+@Composable
+private fun SavedConversationsCard(appState: AppState) {
+    val context = LocalContext.current
+    var size by remember { mutableStateOf<Long?>(null) }
+    var clearing by remember { mutableStateOf(false) }
+    LaunchedEffect(clearing) { if (!clearing) size = appState.chat.savedSize() }
+    SettingsCard("Saved conversations") {
+        Text(
+            "Conversations you open are saved on this device, so they show at once and can be read while the office computer is unreachable. Up to 500 MB; the least recently opened are removed first.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Text(size?.let { "${android.text.format.Formatter.formatFileSize(context, it)} used" } ?: "…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        OutlinedButton(onClick = { clearing = true; appState.chat.clearSaved { clearing = false } }, enabled = !clearing && size != 0L) {
+            Text("Clear local copy")
+        }
     }
 }
 

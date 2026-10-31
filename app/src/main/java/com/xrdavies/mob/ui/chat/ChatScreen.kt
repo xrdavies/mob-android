@@ -40,6 +40,7 @@ import com.xrdavies.mob.ui.settings.PairDialog
 import com.xrdavies.mob.ui.settings.RouteBanner
 import com.xrdavies.mob.ui.settings.RouteMenuItems
 import com.xrdavies.mob.viewmodel.AppState
+import com.xrdavies.mob.viewmodel.SyncState
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -50,6 +51,9 @@ fun ChatScreen(appState: AppState, onOpenDrawer: (() -> Unit)?, onOpenSettings: 
     val currentId by chat.currentId.collectAsState()
     val loading by chat.loading.collectAsState()
     val error by chat.error.collectAsState()
+    val sync by chat.sync.collectAsState()
+    val olderLoading by chat.olderLoading.collectAsState()
+    val olderError by chat.olderError.collectAsState()
     val isConnected by appState.isConnected.collectAsState()
     val health by appState.health.collectAsState()
     val queued by appState.queued.collectAsState()
@@ -107,6 +111,13 @@ fun ChatScreen(appState: AppState, onOpenDrawer: (() -> Unit)?, onOpenSettings: 
             toEnd()
         }
     }
+    // Older turns load near the top once the user scrolled there (or when the turns do not fill the
+    // screen). The list keeps its first visible item by key when they are added above it.
+    fun nearTop() = listState.firstVisibleItemIndex < 3 && (!follow || (!listState.canScrollBackward && !listState.canScrollForward))
+    LaunchedEffect(listState) {
+        snapshotFlow { nearTop() }.collect { if (it) chat.loadOlder() }
+    }
+    LaunchedEffect(olderLoading) { if (!olderLoading && nearTop()) chat.loadOlder() }
     LiveViewDialog(appState)
 
     Scaffold(
@@ -155,6 +166,7 @@ fun ChatScreen(appState: AppState, onOpenDrawer: (() -> Unit)?, onOpenSettings: 
                                 )
                             }
                         }
+                        SyncStatusLine(sync, onRetry = chat::resync)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
@@ -193,13 +205,17 @@ fun ChatScreen(appState: AppState, onOpenDrawer: (() -> Unit)?, onOpenSettings: 
                             }
                             currentId == null -> EmptyState("New chat on ${machine.name}", "Ask the agent to do something on the office computer")
                             detail == null && loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                            else -> LazyColumn(
-                                state = listState,
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                items(items, key = { it.id }) { TimelineRow(it, appState, detail?.session?.runner, it.id == lastFooter) }
+                            else -> {
+                                LazyColumn(
+                                    state = listState,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentPadding = PaddingValues(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    items(items, key = { it.id }) { TimelineRow(it, appState, detail?.session?.runner, it.id == lastFooter) }
+                                }
+                                // Over the list, not in it: a row above the turns would become the item the list keeps in place.
+                                OlderStatus(olderLoading, olderError, onRetry = chat::loadOlder, Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
                             }
                         }
                     }
@@ -210,6 +226,48 @@ fun ChatScreen(appState: AppState, onOpenDrawer: (() -> Unit)?, onOpenSettings: 
                     VerticalDivider()
                     DesktopDrawer(appState, Modifier.width(paneWidth), maxHeight = Dp.Unspecified)
                 }
+            }
+        }
+    }
+}
+
+/** Under the title: syncing (after 300 ms, so a fast sync shows nothing), offline, or failed with Retry. */
+@Composable
+private fun SyncStatusLine(sync: SyncState, onRetry: () -> Unit) {
+    var late by remember { mutableStateOf(false) }
+    LaunchedEffect(sync) {
+        late = false
+        if (sync == SyncState.Syncing) {
+            delay(300)
+            late = true
+        }
+    }
+    val style = MaterialTheme.typography.bodySmall
+    val color = MaterialTheme.colorScheme.onSurfaceVariant
+    when {
+        sync == SyncState.Syncing && late -> Row(verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(Modifier.size(10.dp), strokeWidth = 1.5.dp)
+            Spacer(Modifier.width(5.dp))
+            Text("Syncing…", style = style, color = color)
+        }
+        sync == SyncState.Offline -> Text("Offline · showing saved copy", style = style, color = color)
+        sync == SyncState.Failed -> Text("Couldn't sync · Retry", style = style, color = color, modifier = Modifier.clickable(onClick = onRetry))
+    }
+}
+
+/** Loading older turns, or why they are missing with Retry. */
+@Composable
+private fun OlderStatus(loading: Boolean, error: String?, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    if (!loading && error == null) return
+    Surface(modifier, shape = RoundedCornerShape(50), tonalElevation = 3.dp, shadowElevation = 2.dp) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (loading) {
+                CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp))
+                Text("Loading older messages", style = MaterialTheme.typography.bodySmall)
+            } else {
+                Text("$error · ", style = MaterialTheme.typography.bodySmall)
+                Text("Retry", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable(onClick = onRetry))
             }
         }
     }

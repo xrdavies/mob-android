@@ -57,6 +57,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         appState.files.foreground = true
+        appState.chat.resync()
     }
 
     override fun onStop() {
