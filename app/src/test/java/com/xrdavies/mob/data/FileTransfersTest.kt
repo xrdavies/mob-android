@@ -59,6 +59,24 @@ class FileTransfersTest {
             val empty = File(dir, "empty").apply { createNewFile() }
             val zero = task.copy(name = "empty-$id.txt", size = 0, sha256 = fileDigest(empty), uploadUrl = null)
             assertEquals(0L, FileTransferClient(api).upload(zero, empty, {}, {}).size)
+            // Folders (mobd with fileFolders): upload into a folder, list it, download from it, rename, delete.
+            val top = FileTransferClient(api).list()
+            if (top.folders != null) {
+                val folder = "android 文件夹 $id"
+                val inner = task.copy(id = UUID.randomUUID().toString(), name = "inner.bin", remotePath = "$folder/inner.bin", uploadUrl = null)
+                assertEquals("$folder/inner.bin", FileTransferClient(api).upload(inner, source, {}, {}).name)
+                assertTrue(FileTransferClient(api).list().folders!!.any { it.name == folder })
+                val listed = FileTransferClient(api).list(folder)
+                assertEquals(listOf("inner.bin"), listed.files.map { it.name })
+                var nested = inner.copy(id = UUID.randomUUID().toString(), upload = false, sha256 = "")
+                val got = File(dir, "nested").apply { createNewFile() }
+                FileTransferClient(api).download(nested, got, { size, etag, sha -> nested = nested.copy(size = size, etag = etag, sha256 = sha) }, {})
+                assertEquals(fileDigest(source), fileDigest(got))
+                FileTransferClient(api).rename("$folder/inner.bin", "renamed.bin")
+                assertEquals(listOf("renamed.bin"), FileTransferClient(api).list(folder).files.map { it.name })
+                FileTransferClient(api).delete(folder)
+                assertFalse(FileTransferClient(api).list().folders!!.any { it.name == folder })
+            }
         } finally { dir.deleteRecursively() }
     }
 }
