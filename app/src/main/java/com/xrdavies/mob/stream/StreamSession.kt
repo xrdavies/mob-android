@@ -111,6 +111,9 @@ class StreamSession(context: Context) : LiveSession {
     /** Tests only: drop ICE candidates both ways, like a network without UDP. */
     var blockWebRTC = false
 
+    /** Debugging: allow only relayed (TURN) candidates, to check the relay path from one network. */
+    var relayOnly = false
+
     /** The views showing the stream, in device pixels; the stream is fitted to the largest. */
     private val views = mutableMapOf<String, Pair<Int, Int>>()
     private var fallbackSize = 1280 to 800
@@ -124,7 +127,8 @@ class StreamSession(context: Context) : LiveSession {
     /** [preferWebSocket]: the WebSocket carried this machine's last session; race it after 1 s. */
     /** [sessionId]: the conversation's desktop (servers with `sessionDesktops`), sent on POST /stream. */
     /** [audio]: mobd shares its sound (`streamAudio`); the view offers it, off until [setSound]. */
-    fun connect(client: ApiClient, quality: LiveQuality, canResize: Boolean, screen: Pair<Int, Int>, control: Boolean = false, preferWebSocket: Boolean = false, sessionId: String? = null, audio: Boolean = false, onUnauthorized: () -> Unit = {}) {
+    /** [ice]: mobd gives a Mob relay's STUN/TURN servers (`streamIce`), fetched before the offer. */
+    fun connect(client: ApiClient, quality: LiveQuality, canResize: Boolean, screen: Pair<Int, Int>, control: Boolean = false, preferWebSocket: Boolean = false, sessionId: String? = null, audio: Boolean = false, ice: Boolean = false, onUnauthorized: () -> Unit = {}) {
         stop(keepSound = true)
         this.canResize = canResize
         fallbackSize = screen
@@ -133,7 +137,28 @@ class StreamSession(context: Context) : LiveSession {
         _stats.value = StreamStats()
         opened = target()
         Log.add("live view: WebRTC to ${client.baseUrl} at ${opened.first}×${opened.second} (${quality.wire})")
-        conn = Conn(n, client, quality, control, preferWebSocket, sessionId, audio, onUnauthorized).also { it.start() }
+        val start = { servers: List<IceServerSpec> ->
+            if (attempt == n) conn = Conn(n, client, quality, control, preferWebSocket, sessionId, audio, ice, servers, onUnauthorized).also { it.start() }
+        }
+        if (!ice) return start(emptyList())
+        // Through a Mob relay: its STUN and TURN servers, so WebRTC works where host candidates cannot.
+        // Any failure but a refused token means host candidates only, as before.
+        client.okHttpClient.newCall(Request.Builder().url(client.url("stream/ice")).build()).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                main.post {
+                    if (attempt != n) return@post
+                    if (e.isUnauthorized()) {
+                        onUnauthorized()
+                        _state.value = LiveState(LiveStatus.Error, e.message ?: "unauthorized")
+                    } else start(emptyList())
+                }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                val servers = response.use { if (it.isSuccessful) parseIce(it.body?.string().orEmpty()) else emptyList() }
+                main.post { start(servers) }
+            }
+        })
     }
 
     /** The live view cannot start here (mobd without the `stream` feature); says why. */
@@ -216,7 +241,7 @@ class StreamSession(context: Context) : LiveSession {
             opened = want
             c.nudge()
         } else {
-            connect(c.client, c.quality, canResize, fallbackSize, _state.value.control, c.via == WEBSOCKET, c.sessionId, c.audio, c.onUnauthorized)
+            connect(c.client, c.quality, canResize, fallbackSize, _state.value.control, c.via == WEBSOCKET, c.sessionId, c.audio, c.ice, c.onUnauthorized)
         }
     }
 
@@ -320,6 +345,8 @@ class StreamSession(context: Context) : LiveSession {
         val preferWebSocket: Boolean,
         val sessionId: String?,
         val audio: Boolean,
+        val ice: Boolean,
+        val iceServers: List<IceServerSpec>,
         val onUnauthorized: () -> Unit,
     ) {
         var audioReady = false
@@ -408,9 +435,13 @@ class StreamSession(context: Context) : LiveSession {
         }
 
         init {
-            val config = PeerConnection.RTCConfiguration(emptyList()).apply {
+            val servers = iceServers.map { s ->
+                PeerConnection.IceServer.builder(s.urls).setUsername(s.username.orEmpty()).setPassword(s.credential.orEmpty()).createIceServer()
+            }
+            val config = PeerConnection.RTCConfiguration(servers).apply {
                 sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
                 continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_ONCE
+                if (relayOnly && servers.isNotEmpty()) iceTransportsType = PeerConnection.IceTransportsType.RELAY
             }
             pc = factory.createPeerConnection(config, observer())
                 ?: throw IllegalStateException("could not create a peer connection")
@@ -452,7 +483,8 @@ class StreamSession(context: Context) : LiveSession {
             pc.createOffer(object : Sdp() {
                 override fun onCreateSuccess(desc: SessionDescription) {
                     pc.setLocalDescription(object : Sdp() {
-                        override fun onSetSuccess() = post { main.postDelayed(gatherTimeout, 2000) }
+                        // STUN and TURN answers take longer than host candidates.
+                        override fun onSetSuccess() = post { main.postDelayed(gatherTimeout, if (iceServers.isEmpty()) 2000 else 3000) }
                         override fun onSetFailure(error: String) = post { fail("Could not start WebRTC: $error") }
                     }, desc)
                 }
