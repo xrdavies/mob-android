@@ -23,6 +23,12 @@ Mob for Android (Kotlin, Jetpack Compose). **Mob** is mob programming with your 
 - **Setup warnings**: mobd's readiness checks (Accessibility, Screen Recording, display, agent CLIs) show in the chat header and Settings
 - **Live desktop**: see below
 
+## Agent collaboration (draft)
+
+The [collaboration plan](docs/agent-collaboration.md) follows the shared Mob
+vocabulary and mobd contract, covering Android references, request cards, local
+copies and lifecycle recovery. Cross-agent messaging is not implemented yet.
+
 ## USB redirection (draft)
 
 The [USB scope document](docs/usb-redirection.md) follows the shared Desktop-to-mobd plan.

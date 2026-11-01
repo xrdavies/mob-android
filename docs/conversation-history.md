@@ -8,6 +8,10 @@ scroll. The protocol is in
 `GET /sessions/{id}/history` for pages and bounded changes, `seq` for turn order, `sessionHistory`
 in `/health`. Without that feature the app keeps today's full-snapshot request.
 
+The [agent collaboration draft](agent-collaboration.md) proposes separate request
+summaries and revision sync alongside this turn cache. These additions are not
+implemented; pending requests stay visible even when their old turns are absent.
+
 ## Local copy
 
 SQLite through the platform's `SQLiteOpenHelper` (`data/SqliteHistory.kt`, no new dependency), in
