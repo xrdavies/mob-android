@@ -26,8 +26,8 @@ Mob for Android (Kotlin, Jetpack Compose). **Mob** is mob programming with your 
 ## Agent collaboration (draft)
 
 The [collaboration plan](docs/agent-collaboration.md) follows the shared Mob
-vocabulary and mobd contract, covering Android references, request cards, local
-copies and lifecycle recovery. Cross-agent messaging is not implemented yet.
+vocabulary and architecture, covering Android interaction and lifecycle recovery.
+Cross-agent messaging is not implemented yet.
 
 ## USB redirection (draft)
 
