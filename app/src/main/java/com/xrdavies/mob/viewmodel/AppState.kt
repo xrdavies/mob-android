@@ -504,7 +504,7 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
         // Remember which transport carried the picture, so the next connect races the WebSocket sooner.
         stream.onTransport = { t -> rememberTransport(m.id, t) }
         stream.connect(_apiClient, LiveQuality.of(m.liveQuality), h.supports("streamResize"), screen,
-            preferWebSocket = m.liveWebSocket == true, sessionId = session, audio = h.supports("streamAudio")) {
+            preferWebSocket = m.liveWebSocket == true, sessionId = session, audio = h.supports("streamAudio"), ice = h.supports("streamIce")) {
             markNeedsPairing(m.id, _apiClient.token)
         }
     }
@@ -587,7 +587,7 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
             val session = if (h.sessionDesktops) chat.currentId.value ?: return noDesktop() else null
             val screen = appContext.resources.displayMetrics.let { it.widthPixels to it.heightPixels }
             stream.connect(_apiClient, quality, h?.supports("streamResize") == true, screen, control, m.liveWebSocket == true, session,
-                audio = h?.supports("streamAudio") == true) {
+                audio = h?.supports("streamAudio") == true, ice = h?.supports("streamIce") == true) {
                 markNeedsPairing(id, _apiClient.token)
             }
         }

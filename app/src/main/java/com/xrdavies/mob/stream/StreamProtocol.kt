@@ -151,6 +151,22 @@ fun errorText(body: String, code: Int): String =
     runCatching { JsonParser().parse(body).asJsonObject.get("error").asString }.getOrNull()?.takeIf { it.isNotBlank() } ?: "HTTP $code"
 
 /** [sessionId]: the conversation whose desktop to show (servers with `sessionDesktops`); omitted otherwise. */
+/** One of a Mob relay's STUN/TURN servers from GET /stream/ice (mobd with `streamIce`). */
+data class IceServerSpec(val urls: List<String>, val username: String? = null, val credential: String? = null)
+
+/** GET /stream/ice's servers; empty for anything malformed (the live view then uses host candidates). */
+fun parseIce(body: String): List<IceServerSpec> {
+    val list = runCatching { JsonParser().parse(body).asJsonObject.getAsJsonArray("iceServers") }.getOrNull() ?: return emptyList()
+    return list.mapNotNull { e ->
+        runCatching {
+            val o = e.asJsonObject
+            val urls = o.getAsJsonArray("urls").map { it.asString }.filter { it.isNotBlank() }
+            if (urls.isEmpty()) null
+            else IceServerSpec(urls, o.get("username")?.takeIf { it.isJsonPrimitive }?.asString, o.get("credential")?.takeIf { it.isJsonPrimitive }?.asString)
+        }.getOrNull()
+    }
+}
+
 /** Turns the desktop's sound on or off on the control channel (mobd docs/desktop-audio.md). */
 fun audioMessage(on: Boolean): String = gson.toJson(mapOf("t" to "audio", "on" to on))
 

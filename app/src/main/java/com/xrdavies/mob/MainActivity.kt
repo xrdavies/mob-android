@@ -25,6 +25,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val appState = appState
+        // Debug builds: `am start ... --ez liveRelayOnly true` allows only relayed (TURN) candidates.
+        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 && intent?.hasExtra("liveRelayOnly") == true) {
+            appState.stream.relayOnly = intent.getBooleanExtra("liveRelayOnly", false)
+        }
         setContent {
             MobTheme {
                 Surface(
