@@ -1,6 +1,6 @@
 # Conversation history: local copy and paging (Android)
 
-Status: implemented on `feat/conversation-history`
+Status: implemented
 
 Mob Mobile for Android keeps a local copy of each conversation and loads older turns as you
 scroll. The protocol is in
@@ -51,11 +51,14 @@ that is saved (when inside the saved range) but not added to the end, so it can 
 
 | State | Shown |
 |---|---|
+| Opening a chat with no saved copy | Spinner in place of the conversation, also while retrying |
+| That first load failed | **Couldn't load this conversation** with the reason and **Retry**; polling keeps retrying |
 | Opening a saved chat, returning to the app, reconnecting | Spinner and **Syncing…** under the title |
 | Up to date | Nothing |
 | mobd unreachable | **Offline · showing saved copy** |
 | Sync failed while online | **Couldn't sync · Retry** |
 | Loading older turns | Progress indicator at the top |
+| Older turns failed to load | The reason and **Retry** at the top, until Retry is tapped |
 | Older turns not saved, offline | **Older messages aren't available offline** |
 
 The status appears only after about 300 ms, and routine polls show nothing unless they fail; a
@@ -71,8 +74,18 @@ are prepended (checked on the emulator). The loading and error status floats ove
 list instead of being a row in it: a row above the turns would be the item the list keeps in
 place. Loading starts when the first visible item is among the first three, once the user has
 scrolled up (or when the turns do not fill the screen), so opening a conversation does not load an
-extra page. A page load does not scroll to the bottom or start a second request; an error leaves
-the cursor unchanged with Retry.
+extra page. A page load does not scroll to the bottom; a failed page leaves the cursor unchanged
+and waits for Retry instead of being requested again at once.
+
+The list scrolls to the end when a conversation opens, while the user is at the end (new output
+follows), when a message is sent from this device, and when the running turn starts waiting on a
+new question. A turn synced from another device, or a pending question in older turns loaded above,
+does not move it while the user reads older turns.
+
+Each request belongs to one visit of the conversation (`visit`, counted by every open and machine
+change): opening another conversation cancels the older-page request, and a late answer, failure
+or cancellation from an earlier visit (A, then B, then A again) changes neither the turns, the
+cursors, the error nor the spinners of the current one (mob-android#6).
 
 ## Storage limit
 
@@ -93,10 +106,15 @@ Settings → **Saved conversations** shows the space used and **Clear local copy
 
 - `ChatHistoryTest` (JVM, MockWebServer as mobd): merging, first and older pages, a relaunch that
   syncs only changes and reads older turns from the copy, an old changed turn not appended,
-  `reset`, removal after a `404`, offline reading.
+  `reset`, removal after a `404`, offline reading; switching while the first load is held keeps
+  the new conversation's spinner, an older page from an earlier visit is dropped while the current
+  one keeps loading, and a failed first load without a saved copy shows its error, then the spinner
+  while retrying (all three fail on the previous store).
+- `FollowTest`: which pending questions scroll to the end.
 - `SqliteHistoryTest` (instrumented): pages, the `rev` rule and cursors, eviction order and
   trimming, removal and clearing.
 
 Checked on the emulator against a mobd from the `feat/conversation-history` branch with a 45-turn
 conversation: pairing, the newest page, and scrolling up loads the page before without moving
-the visible turn.
+the visible turn. The mob-android#6 changes were checked by the JVM tests only, not on an emulator
+or device.

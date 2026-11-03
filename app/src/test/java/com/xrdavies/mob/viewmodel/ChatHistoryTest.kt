@@ -24,6 +24,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.util.Collections
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 
 class ChatHistoryTest {
@@ -54,11 +55,24 @@ class ChatHistoryTest {
         @Volatile var gone = false
         @Volatile var reset = false
         val requests: MutableList<String> = Collections.synchronizedList(mutableListOf())
+        /** Requests whose path and query contain this wait until [release] (n: the order they came). */
+        @Volatile var hold: String? = null
+        private val gates: MutableList<CountDownLatch> = Collections.synchronizedList(mutableListOf())
+        val held get() = gates.size
+        fun release(n: Int) = gates[n].countDown()
 
         fun change(seq: Int) = synchronized(this) { revs[seq - 1] = ++rev }
         fun add() = synchronized(this) { revs += ++rev }
 
-        override fun dispatch(request: RecordedRequest): MockResponse = synchronized(this) {
+        override fun dispatch(request: RecordedRequest): MockResponse {
+            val url = request.requestUrl!!
+            val target = url.encodedPath + (url.encodedQuery?.let { "?$it" } ?: "")
+            // Held outside the lock, so other requests keep being answered.
+            if (hold?.let { target.contains(it) } == true) CountDownLatch(1).also { gates += it }.await()
+            return answer(request)
+        }
+
+        private fun answer(request: RecordedRequest): MockResponse = synchronized(this) {
             val url = request.requestUrl!!
             requests += url.encodedPath + (url.encodedQuery?.let { "?$it" } ?: "")
             if (offline) return MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START)
@@ -212,5 +226,65 @@ class ChatHistoryTest {
         c.loadOlder()
         until("older not available") { c.olderError.value != null }
         assertEquals("Older messages aren't available offline", c.olderError.value)
+    }
+
+    /** mob-android#6: a request of the conversation left behind does not end the next one's loading. */
+    @Test
+    fun switchingWhileTheFirstLoadIsHeldKeepsTheNewConversationLoading() {
+        val office = Office(25).apply { hold = "/history" }
+        val c = chat(office, MemoryHistory())
+        until("first load held") { office.held == 1 }
+        c.open("b")
+        until("second load held") { office.held == 2 }
+        office.release(0)
+        Thread.sleep(400)
+        assertEquals("b", c.currentId.value)
+        assertNull(c.detail.value)
+        assertTrue("the previous conversation's request ended this one's loading", c.loading.value)
+        office.release(1)
+        until("loaded") { c.detail.value != null && !c.loading.value }
+    }
+
+    /** mob-android#6: a slow older page from an earlier visit (A, B, A again) changes nothing. */
+    @Test
+    fun anOlderPageFromAnEarlierVisitIsDropped() {
+        val office = Office(45)
+        val c = chat(office, MemoryHistory())
+        until("newest page") { c.detail.value?.tasks?.size == 20 && c.sync.value == SyncState.None }
+        Thread.sleep(200)
+        office.hold = "before="
+        c.loadOlder()
+        until("first request held") { office.held == 1 }
+        c.open(null)
+        c.open("s")
+        until("reopened") { c.detail.value?.tasks?.size == 20 && c.sync.value == SyncState.None }
+        assertFalse(c.olderLoading.value)
+        c.loadOlder()
+        until("second request held") { office.held == 2 }
+        office.release(0)
+        Thread.sleep(400)
+        assertEquals("the earlier visit's page was merged", 20, c.detail.value?.tasks?.size)
+        assertTrue("the earlier visit's request ended this visit's loading", c.olderLoading.value)
+        office.release(1)
+        until("this visit's page") { c.detail.value?.tasks?.size == 40 && !c.olderLoading.value }
+        assertNull(c.olderError.value)
+    }
+
+    /** mob-android#6: without a saved copy, a failed first load says so with Retry, and a retry shows the spinner. */
+    @Test
+    fun aFailedFirstLoadShowsTheErrorAndTheRetry() {
+        val office = Office(25).apply { offline = true }
+        val c = chat(office, MemoryHistory())
+        until("load error") { c.loadError.value != null && !c.loading.value }
+        assertNull(c.detail.value)
+        assertNull("shown in place of the conversation, not as a snackbar", c.error.value)
+        office.offline = false
+        office.hold = "/history"
+        c.retry()
+        until("retrying") { c.loading.value && office.held == 1 }
+        assertNull(c.detail.value)
+        office.release(0)
+        until("loaded") { c.detail.value?.tasks?.size == 20 && !c.loading.value }
+        assertNull(c.loadError.value)
     }
 }

@@ -54,6 +54,8 @@ fun ChatScreen(appState: AppState, onOpenDrawer: (() -> Unit)?, onOpenSettings: 
     val sync by chat.sync.collectAsState()
     val olderLoading by chat.olderLoading.collectAsState()
     val olderError by chat.olderError.collectAsState()
+    val loadError by chat.loadError.collectAsState()
+    val sent by chat.sent.collectAsState()
     val isConnected by appState.isConnected.collectAsState()
     val health by appState.health.collectAsState()
     val queued by appState.queued.collectAsState()
@@ -101,12 +103,26 @@ fun ChatScreen(appState: AppState, onOpenDrawer: (() -> Unit)?, onOpenSettings: 
             toEnd()
         } else if (follow) toEnd()
     }
-    // Sending follows the chat again, as does a new question, even one that arrived in the background.
-    val pending = items.indexOfLast { it is TimelineItem.Ask && it.question.isPending }
-    val pendingId = items.getOrNull(pending)?.id
-    val lastUser = items.lastOrNull { it is TimelineItem.User }?.id
-    LaunchedEffect(pendingId, lastUser) {
-        if (pendingId != null || lastUser != null) {
+    // Sending from this device follows the chat again; a message synced from another client does
+    // not, so reading older turns is not interrupted (mob-android#6). The new turn arrives later and
+    // the items effect above scrolls to it.
+    var sentSeen by remember { mutableStateOf(sent) }
+    LaunchedEffect(sent) {
+        if (sent != sentSeen) {
+            sentSeen = sent
+            follow = true
+            toEnd()
+        }
+    }
+    // A question the current turn now waits on follows too, even one that arrived in the background;
+    // a pending question in older turns loaded above does not.
+    val pending = items.lastOrNull { it is TimelineItem.Ask && it.question.isPending } as TimelineItem.Ask?
+    val pendingId = pending?.id
+    var pendingSeen by remember(currentId) { mutableStateOf(pendingId) }
+    LaunchedEffect(pendingId) {
+        val newer = followsQuestion(pendingSeen, pendingId, pending?.question?.taskId == detail?.current?.id)
+        pendingSeen = pendingId
+        if (newer) {
             follow = true
             toEnd()
         }
@@ -114,10 +130,11 @@ fun ChatScreen(appState: AppState, onOpenDrawer: (() -> Unit)?, onOpenSettings: 
     // Older turns load near the top once the user scrolled there (or when the turns do not fill the
     // screen). The list keeps its first visible item by key when they are added above it.
     fun nearTop() = listState.firstVisibleItemIndex < 3 && (!follow || (!listState.canScrollBackward && !listState.canScrollForward))
+    // A failed page waits for Retry instead of being requested again at once.
     LaunchedEffect(listState) {
-        snapshotFlow { nearTop() }.collect { if (it) chat.loadOlder() }
+        snapshotFlow { nearTop() }.collect { if (it && chat.olderError.value == null) chat.loadOlder() }
     }
-    LaunchedEffect(olderLoading) { if (!olderLoading && nearTop()) chat.loadOlder() }
+    LaunchedEffect(olderLoading) { if (!olderLoading && olderError == null && nearTop()) chat.loadOlder() }
     LiveViewDialog(appState)
 
     Scaffold(
@@ -205,6 +222,9 @@ fun ChatScreen(appState: AppState, onOpenDrawer: (() -> Unit)?, onOpenSettings: 
                             }
                             currentId == null -> EmptyState("New chat on ${machine.name}", "Ask the agent to do something on the office computer")
                             detail == null && loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                            detail == null && loadError != null -> EmptyState("Couldn't load this conversation", loadError.orEmpty()) {
+                                Button(onClick = chat::retry) { Text("Retry") }
+                            }
                             else -> {
                                 LazyColumn(
                                     state = listState,
@@ -256,6 +276,13 @@ private fun SyncStatusLine(sync: SyncState, onRetry: () -> Unit) {
 }
 
 /** Loading older turns, or why they are missing with Retry. */
+/**
+ * Whether a pending question means scrolling to the end: it is new ([seen] was another one or none)
+ * and belongs to the turn running now, not to older turns loaded above.
+ */
+internal fun followsQuestion(seen: String?, pending: String?, inCurrentTurn: Boolean): Boolean =
+    pending != null && pending != seen && inCurrentTurn
+
 @Composable
 private fun OlderStatus(loading: Boolean, error: String?, onRetry: () -> Unit, modifier: Modifier = Modifier) {
     if (!loading && error == null) return

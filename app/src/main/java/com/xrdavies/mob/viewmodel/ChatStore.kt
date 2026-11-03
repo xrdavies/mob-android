@@ -116,6 +116,12 @@ class ChatStore(
     private var api: ApiClient? = null
     private var machineId = ""
     private var generation = 0
+    /**
+     * Counts opens (and machine changes): work started for one visit of a conversation (A, then B,
+     * then A again is a new visit) only changes what that visit shows (mob-android#6).
+     */
+    private var visit = 0
+    private var older: Job? = null
 
     private val _sessions = MutableStateFlow<List<Session>>(emptyList())
     val sessions: StateFlow<List<Session>> = _sessions
@@ -136,6 +142,10 @@ class ChatStore(
     private val _sending = MutableStateFlow(false)
     val sending: StateFlow<Boolean> = _sending
 
+    /** Counts messages sent from this device: the chat follows its end again for each. */
+    private val _sent = MutableStateFlow(0)
+    val sent: StateFlow<Int> = _sent
+
     /** A stop was requested and the turn has not ended yet. */
     private val _cancelling = MutableStateFlow(false)
     val cancelling: StateFlow<Boolean> = _cancelling
@@ -152,6 +162,10 @@ class ChatStore(
 
     private val _olderError = MutableStateFlow<String?>(null)
     val olderError: StateFlow<String?> = _olderError
+
+    /** The open conversation could not be loaded and nothing is shown yet; [retry] tries again. */
+    private val _loadError = MutableStateFlow<String?>(null)
+    val loadError: StateFlow<String?> = _loadError
 
     private var historyKey = ""
 
@@ -190,6 +204,8 @@ class ChatStore(
     fun attach(client: ApiClient, machine: String, enabled: Boolean, historyKey: String? = null) {
         if (saveTimer != null) saveCurrent()
         generation++
+        visit++
+        older?.cancel()
         poll?.cancel()
         listPoll?.cancel()
         stopStream()
@@ -202,6 +218,10 @@ class ChatStore(
         _currentId.value = null
         cache.clear()
         _sync.value = SyncState.None
+        _loading.value = false
+        _loadError.value = null
+        _olderLoading.value = false
+        _olderError.value = null
         paged = null
         this.historyKey = historyKey ?: machine
         if (api == null) return
@@ -285,6 +305,9 @@ class ChatStore(
     fun open(id: String?) {
         _detail.value?.let(::remember)
         if (saveTimer != null) saveCurrent()
+        visit++
+        older?.cancel()
+        older = null
         _currentId.value = id
         // With paged history the local copy replaces the memory cache.
         _detail.value = if (paged == true) null else id?.let { cache[it] }
@@ -292,12 +315,16 @@ class ChatStore(
         before = null
         _olderLoading.value = false
         _olderError.value = null
+        _loadError.value = null
         if (_sync.value != SyncState.Offline) _sync.value = SyncState.None
         _cancelling.value = false
         prefs.edit().putString(key(), id).apply()
         poll?.cancel()
         stopStream()
-        if (id == null) return
+        if (id == null) {
+            _loading.value = false
+            return
+        }
         _loading.value = _detail.value == null
         follow(id)
     }
@@ -316,9 +343,16 @@ class ChatStore(
         poll?.cancel()
         val client = api ?: return
         val gen = generation
+        val mine = visit
+        // Only this visit's polling may change what is shown: a cancelled one finishing late must
+        // not end the next conversation's loading.
+        fun owns() = gen == generation && mine == visit && _currentId.value == id
         poll = scope.launch {
             var first = true
-            while (isActive && gen == generation && _currentId.value == id) {
+            while (isActive && owns()) {
+                // Nothing to show yet (first load, or retrying after it failed): the spinner says a
+                // request is under way.
+                if (_detail.value == null) _loading.value = true
                 try {
                     if (paged == null) paged = runCatching { client.api.getHealth() }.getOrNull()?.features?.contains("sessionHistory")
                     if (first && paged != false && _detail.value == null) {
@@ -351,6 +385,7 @@ class ChatStore(
                         (fresh.current?.eventId ?: 0) < (shown.current?.eventId ?: 0)
                     if (!stale) synced?.let(::apply) ?: run { _detail.value = fresh }
                     _sync.value = SyncState.None
+                    _loadError.value = null
                     if (_detail.value?.busy != true) _cancelling.value = false
                     followTurn(client, gen)
                 } catch (e: kotlinx.coroutines.CancellationException) {
@@ -365,13 +400,18 @@ class ChatStore(
                         if (gen == generation) removeSession(id)
                         break
                     }
-                    if (paged == true && _detail.value != null && gen == generation) {
+                    if (!owns()) break
+                    if (paged == true && _detail.value != null) {
                         // The saved copy stays readable; the status says why it may be behind.
                         _sync.value = if (e.isUnreachable()) SyncState.Offline else SyncState.Failed
                         Log.error("sync failed: ${e.readable()}")
-                    } else if (first && gen == generation) fail(e)
+                    } else if (_detail.value == null) {
+                        // Shown in place of the conversation with Retry; polling keeps retrying.
+                        _loadError.value = e.readable()
+                        Log.error("loading the conversation failed: ${e.readable()}")
+                    } else if (first) fail(e)
                 } finally {
-                    if (first) _loading.value = false
+                    if (owns() && (first || _detail.value == null)) _loading.value = false
                     first = false
                 }
                 delay(
@@ -388,6 +428,12 @@ class ChatStore(
 
     /** Re-reads the open conversation now (after an action) without clearing it. */
     private fun reload(indicate: Boolean = false) = _currentId.value?.let { follow(it, indicate) }
+
+    /** Retry after the open conversation failed to load. */
+    fun retry() {
+        if (_detail.value != null || _loading.value) return
+        reload()
+    }
 
     /** Returning to the app: catches up with what changed meanwhile, showing "Syncing…". */
     fun resync() {
@@ -439,9 +485,13 @@ class ChatStore(
         if (!hasOlder(shown) || _olderLoading.value) return
         val id = shown.session.id
         val gen = generation
+        val mine = visit
+        // Only this visit's request may change the conversation, cursors and indicators: a slow
+        // answer for an earlier visit (A, B, A again) is dropped.
+        fun owns() = gen == generation && mine == visit && _currentId.value == id
         _olderLoading.value = true
         _olderError.value = null
-        scope.launch {
+        older = scope.launch {
             try {
                 var page: ChatDetail? = null
                 val stored = storedFrom
@@ -452,7 +502,7 @@ class ChatStore(
                     val cursor = before ?: throw IllegalStateException("mobd gave no cursor for older messages")
                     val client = api ?: return@launch
                     val answer = client.api.sessionHistory(id, before = cursor, limit = PAGE)
-                    if (gen != generation || _currentId.value != id) return@launch
+                    if (!owns()) return@launch
                     val fresh = ChatDetail.merged(answer, null)
                     storedFrom = fresh.oldestSeq
                     before = answer.before
@@ -462,18 +512,18 @@ class ChatStore(
                 }
                 val current = _detail.value
                 val older = page
-                if (gen != generation || _currentId.value != id || current == null || older == null) return@launch
+                if (!owns() || current == null || older == null) return@launch
                 // Older pages never move the sync baseline or the session metadata.
                 val merged = ChatDetail.mergedTurns(older, current, older.oldestSeq ?: from)
                 _detail.value = merged.copy(session = current.session.copy(messages = merged.session.messages))
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (gen != generation || _currentId.value != id) return@launch
+                if (!owns()) return@launch
                 Log.error("loading older turns failed: ${e.readable()}")
                 _olderError.value = if (e.isUnreachable()) "Older messages aren't available offline" else "Couldn't load older messages"
             } finally {
-                if (gen == generation && _currentId.value == id) _olderLoading.value = false
+                if (owns()) _olderLoading.value = false
             }
         }
     }
@@ -660,6 +710,7 @@ class ChatStore(
         done: (Boolean) -> Unit = {},
     ) {
         _sending.value = true
+        _sent.value++
         val sessionId = _currentId.value
         var ok = false
         launch { client, gen ->
@@ -694,6 +745,7 @@ class ChatStore(
     fun steer(prompt: String, done: (Boolean) -> Unit = {}) {
         val task = _detail.value?.current ?: return
         _sending.value = true
+        _sent.value++
         var ok = false
         launch { client, _ ->
             try {
