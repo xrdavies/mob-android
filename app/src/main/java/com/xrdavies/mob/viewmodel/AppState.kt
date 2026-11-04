@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
 import com.xrdavies.mob.data.AnswerQuestionRequest
 import com.xrdavies.mob.data.ApiClient
+import com.xrdavies.mob.data.CollabRequest
 import com.xrdavies.mob.data.SqliteHistory
 import com.xrdavies.mob.data.DesktopEvent
 import com.xrdavies.mob.data.DesktopState
@@ -466,6 +467,10 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     private val _settingsTick = MutableStateFlow(0)
     val settingsTick: StateFlow<Int> = _settingsTick
 
+    override fun onCollab(m: Machine, r: CollabRequest) {
+        if (m.id == _activeMachineId.value) chat.applyCollab(r)
+    }
+
     override fun onSettings(m: Machine) {
         if (m.id != _activeMachineId.value) return
         _settingsTick.value++
@@ -532,6 +537,11 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
             if (client !== _apiClient) return
             val first = _health.value == null
             _health.value = h
+            val collab = h.supports("agentCollaboration")
+            if (collab != chat.collaboration) {
+                chat.collaboration = collab
+                chat.loadCollab()
+            }
             if (!_isConnected.value) Log.add("${activeMachine?.name}: connected, runners ${h.runners.orEmpty().joinToString { it.name }}")
             _isConnected.value = h.ok
             _healthError.value = null

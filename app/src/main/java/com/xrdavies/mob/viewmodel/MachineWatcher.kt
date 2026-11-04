@@ -1,6 +1,7 @@
 package com.xrdavies.mob.viewmodel
 
 import com.xrdavies.mob.data.ApiClient
+import com.xrdavies.mob.data.CollabRequest
 import com.xrdavies.mob.data.DesktopEvent
 import com.xrdavies.mob.data.Machine
 import com.xrdavies.mob.data.OPEN
@@ -33,6 +34,8 @@ interface MachineEvents {
     fun onDesktopEvent(m: Machine, e: DesktopEvent) {}
     /** The machine settings changed on some device. */
     fun onSettings(m: Machine) {}
+    /** An agent collaboration request changed. */
+    fun onCollab(m: Machine, r: CollabRequest) {}
 }
 
 /**
@@ -69,6 +72,9 @@ class MachineWatcher(val machine: Machine, val client: ApiClient, scope: Corouti
                             events.onQueue(machine, it.queued.orEmpty().size)
                         }
                         "settings" -> events.onSettings(machine)
+                        "collab" -> runCatching { ApiClient.gson.fromJson(e.data, CollabRequest::class.java) }.getOrNull()?.let {
+                            events.onCollab(machine, it)
+                        }
                         "desktop", "memory", "disk" -> parseDesktopEvent(e.type, e.data)?.let { events.onDesktopEvent(machine, it) }
                         "reset" -> {
                             Log.add("${machine.name}: events reset, refetching")

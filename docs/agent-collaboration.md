@@ -51,3 +51,20 @@ delivery covers existing agents on one mobd.
 Validate the A/B exchange, user control and reopening after disconnection first.
 UI component details, API models and cache changes follow after the shared
 implementation contract is defined.
+
+## Status: Android (feat/agent-collab-core)
+
+Built against mobd's `feat/agent-collab-core` API, not yet tested with a real mobd or a device.
+
+- **Handles:** the badge shows next to the title; the chat menu sets, clears or moves a handle.
+  Moving asks first when the handle belongs to another conversation.
+- **@ picker:** typing `@` above the composer lists conversations, handles first. Archived agents
+  are greyed out, with Unarchive and "Give @handle here". Picked agents are sent as session IDs
+  with the message; typed mentions are resolved on send and block the send when unknown or archived.
+- **Pending requests:** a strip above the timeline lists unfinished requests and requests that need
+  you. Tapping one opens its text, thread and result, with Cancel. Ended requests can be dismissed.
+- **Peer messages:** a turn started by another agent shows as "From <agent>", not as your message.
+- **Live updates:** the global `collab` event updates the strip; it reloads on open and on refresh.
+
+Not verified: a real two-agent exchange in the app, the picker on a phone, and the handle dialog's
+move flow.

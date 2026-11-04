@@ -59,6 +59,10 @@ fun TimelineRow(item: TimelineItem, appState: AppState, runner: String?, last: B
 
 @Composable
 private fun UserMessage(message: Message, task: Task?, appState: AppState) {
+    if (task?.origin?.kind == "collab") {
+        PeerMessage(message.content)
+        return
+    }
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         task?.attachments?.takeIf { it.isNotEmpty() }?.let { ids ->
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
