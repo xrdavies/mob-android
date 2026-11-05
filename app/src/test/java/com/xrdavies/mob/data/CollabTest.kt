@@ -106,4 +106,75 @@ class CollabTest {
         assertNull(mentionQuery("done"))
         assertEquals("ask @api ", insertMention("ask @ap", "api"))
     }
+
+    private fun activity(tool: String, args: Map<String, Any?>) =
+        Activity("a", "t", "tool", "completed", tool, "mob-mcp", tool, args, null, null, null, null, null, null, null, null, null, null)
+
+    @Test
+    fun handleProblemExplainsEachRuleAndNormalizes() {
+        assertEquals("", handleProblem("order-api"))
+        assertTrue(handleProblem("a").contains("2 characters"))
+        assertTrue(handleProblem("1api").contains("letter"))
+        assertTrue(handleProblem("cafe").contains("conversation ID"))
+        assertTrue(handleProblem("here").contains("reserved"))
+        listOf("api", "a", "1api", "cafe", "here", "x".repeat(33)).forEach { assertEquals(it, handleProblem(it).isEmpty(), validHandle(it)) }
+        assertEquals("order-service-v2", normalizeHandleInput("@Order Service_v2!"))
+    }
+
+    @Test
+    fun mentionSegmentsMarkKnownAgentsOnly() {
+        val sessions = listOf(session("2ead98c31b", "heron", "B"), session("b9b040ee85", title = "off road"), session("ea7b1322", "asker", "A"))
+        val segs = mentionSegments("ask @heron and @b9b040, not @nobody or @asker.", sessions, "ea7b1322")
+        assertEquals(listOf("ask ", "@heron", " and ", "@b9b040", ", not @nobody or @asker."), segs.map { it.text })
+        assertEquals(listOf(null, "2ead98c31b", null, "b9b040ee85", null), segs.map { it.session?.id })
+    }
+
+    @Test
+    fun deliveriesNameSenderLabelAndBody() {
+        val r = CollabRequest("r", null, "A", "B", null, null, null, "answered", null, null, null, null, null)
+        assertEquals("A", deliverySender("request", r))
+        assertEquals("B", deliverySender("result", r))
+        assertNull(deliverySender("notice", r))
+        assertEquals("couldn't complete your request", deliveryLabel("result", "failed"))
+        assertEquals("Reply okay.", deliveryBody("Request: Reply okay.\n\nWhen done, call complete_request(\"r-1\", \"answered\" | \"failed\", <result>). More."))
+        assertEquals("okay", deliveryBody("Result of your request \"Reply \\\"okay\\\"\" to @heron (answered):\nokay"))
+        val prompt = "Preamble\n\n[Mob collaboration · from @heron · request r-1 · exchange x-1]\nResult of your request \"q\" to @heron (answered):\nBLUE"
+        assertEquals(listOf("@heron" to "Result of your request \"q\" to @heron (answered):\nBLUE"), parseDelivery(prompt))
+    }
+
+    @Test
+    fun labelsAndStepTitles() {
+        assertEquals("${"x".repeat(31)}… (962ae4)", agentShortLabel(session("962ae4ff", title = "x".repeat(40))))
+        assertEquals("@heron", agentShortLabel(session("2ead98", "heron", "B")))
+        assertEquals("C", agentInitial("[collab test]"))
+        val sessions = listOf(session("2ead98c31b", "heron", "B"))
+        assertEquals("Asked @heron: x", collabStepTitle(activity("send_request", mapOf("to" to "2ead98", "request" to "x")), sessions))
+        assertEquals("Replied: BLUE", collabStepTitle(activity("complete_request", mapOf("outcome" to "answered", "result" to "BLUE"))))
+        assertNull(collabStepTitle(activity("screenshot", emptyMap()).copy(server = "other")))
+    }
+
+    @Test
+    fun pickerListsAgentsFirstWithoutSelf() {
+        val list = mentionCandidates(listOf(session("a1", title = "off road"), session("b2", "heron", "B"), session("c3", "self", "C")), "", "c3")
+        assertEquals(listOf("b2", "a1"), list.map { it.id })
+    }
+
+    @Test
+    fun peerPartsUseDeliveriesWhenTheirRequestsAreKnown() {
+        val r = CollabRequest("r-1", null, "A", "2ead98c31b", "A", "B", "q?", "answered", null, null, null, null, null)
+        val d = Delivery("d", "A", "r-1", "result", "BLUE")
+        val prompt = "Preamble\n\n[Mob collaboration · from @heron · request r-1 · exchange x-1]\nResult of your request \"q?\" to @heron (answered):\nBLUE"
+        val known = peerParts(listOf(d), prompt, listOf(r), listOf(session("2ead98c31b", "heron", "B"))).single()
+        assertEquals(PeerPart("2ead98c31b", "@heron", "replied", "BLUE", "q?"), known)
+        // Before the requests load, the prompt still names the sender.
+        val early = peerParts(listOf(d), prompt, emptyList(), emptyList()).single()
+        assertEquals("@heron" to "BLUE", early.name to early.body)
+    }
+
+    @Test
+    fun suggestionsAvoidTakenHandles() {
+        assertEquals("off-road", suggestHandle("off road", emptySet()))
+        assertEquals("off-road-2", suggestHandle("off road", setOf("off-road")))
+        assertEquals("agent", suggestHandle("当前", emptySet()))
+    }
 }

@@ -115,3 +115,155 @@ fun insertMention(text: String, token: String): String = text.replace(Regex("@[a
 
 /** The @-query being typed at the end of [text] ("@ap" → "ap"), or null. */
 fun mentionQuery(text: String): String? = Regex("(?:^|\\s)@([a-z0-9-]{0,32})$").find(text)?.groupValues?.get(1)
+
+/** Why [h] cannot be a handle, in words for the user; "" when it can. */
+fun handleProblem(h: String): String = when {
+    h.length < 2 -> "At least 2 characters."
+    h.length > 32 -> "At most 32 characters."
+    !h[0].let { it in 'a'..'z' } -> "Start with a letter."
+    !Regex("^[a-z0-9-]+$").matches(h) -> "Use lowercase letters, digits and -."
+    HEX.matches(h) -> "Only 0–9 and a–f reads as a conversation ID; add another letter."
+    h in RESERVED -> "@$h is reserved."
+    else -> ""
+}
+
+/** What the handle field keeps of typed text: lowercase, no leading @, spaces and _ as -. */
+fun normalizeHandleInput(s: String): String =
+    s.lowercase().replace(Regex("^@+"), "").replace(Regex("[\\s_]+"), "-").replace(Regex("[^a-z0-9-]"), "").take(32)
+
+/** An agent's name where space is short: "@handle", else its title cut to [max] characters with a short ID. */
+fun agentShortLabel(s: Session, max: Int = 32): String {
+    s.handle?.let { return "@$it" }
+    val t = s.displayTitle
+    val cut = if (t.codePointCount(0, t.length) > max) t.take(max - 1).trimEnd() + "…" else t
+    return "$cut (${s.id.take(6)})"
+}
+
+/** A stable hue (0–359) for an agent, so it keeps its colour everywhere (same as Desktop). */
+fun agentHue(id: String): Int = id.fold(0) { h, c -> (h * 31 + c.code) % 360 }
+
+/** The avatar letter for a label: its first letter or digit. */
+fun agentInitial(label: String): String = label.firstOrNull { it.isLetterOrDigit() }?.uppercase() ?: "?"
+
+/** A run of text: plain, or an @mention of another known conversation. */
+data class MentionSegment(val text: String, val session: Session? = null)
+
+/** [text] split into plain runs and @mentions of other conversations (handle or unique short ID). */
+fun mentionSegments(text: String, sessions: List<Session>, self: String?): List<MentionSegment> {
+    val out = mutableListOf<MentionSegment>()
+    var last = 0
+    for (m in Regex("(^|\\s)@([a-zA-Z0-9-]{2,32})(?=$|[\\s.,;:!?)])").findAll(text)) {
+        val word = m.groupValues[2].lowercase()
+        var hit = sessions.firstOrNull { it.handle == word }
+        if (hit == null && HEX.matches(word) && word.length >= 6) {
+            hit = sessions.filter { it.id.startsWith(word) }.singleOrNull()
+        }
+        if (hit == null || hit.id == self) continue
+        val start = m.range.first + m.groupValues[1].length
+        if (start > last) out += MentionSegment(text.substring(last, start))
+        out += MentionSegment("@" + m.groupValues[2], hit)
+        last = start + m.groupValues[2].length + 1
+    }
+    if (last < text.length) out += MentionSegment(text.substring(last))
+    return out
+}
+
+/** Who a delivery is from, by session ID: the requester for requests and answers, else the recipient. */
+fun deliverySender(kind: String?, r: CollabRequest): String? = when (kind) {
+    "notice" -> null
+    "request", "answer" -> r.from
+    else -> r.to
+}
+
+/** What a delivery says about itself, after the sender's name. */
+fun deliveryLabel(kind: String?, status: String? = null): String = when (kind) {
+    "request" -> "asks"
+    "clarification" -> "needs clarification"
+    "answer" -> "answered your question"
+    "result" -> if (status == "failed") "couldn't complete your request" else "replied"
+    else -> ""
+}
+
+/** The part of a delivered message its sender wrote, without mobd's instructions to the recipient. */
+fun deliveryBody(body: String): String = body
+    .replace(Regex("^Request: "), "")
+    .replace(Regex("\\n\\nWhen done, call complete_request\\([\\s\\S]*$"), "")
+    .replace(Regex("\\n\\nAnswer with answer_clarification\\([\\s\\S]*$"), "")
+    .replace(Regex("^Result of your request \"(?:[^\"\\\\]|\\\\.)*\" to .+? \\((\\w+)\\):\\n"), "")
+    .trim()
+
+/** A delivered turn's prompt split into its messages: who sent each, and the text. */
+fun parseDelivery(prompt: String): List<Pair<String, String>> =
+    prompt.split("\n\n---\n\n").mapNotNull { part ->
+        Regex("\\[Mob collaboration · from (.+?) · request (\\S+) · exchange \\S+\\]\\n([\\s\\S]*)").find(part)
+            ?.let { it.groupValues[1] to it.groupValues[3].trim() }
+    }
+
+/** A readable title for a collaboration tool step, or null for other steps. */
+fun collabStepTitle(a: Activity, sessions: List<Session> = emptyList()): String? {
+    if (a.server != "mob-mcp") return null
+    fun arg(k: String) = a.arguments?.get(k) as? String ?: ""
+    val to = arg("to").removePrefix("@").lowercase()
+    val byId = if (to.length >= 6 && HEX.matches(to)) sessions.filter { it.id.startsWith(to) } else emptyList()
+    val hit = sessions.firstOrNull { it.handle == to } ?: byId.singleOrNull()
+    val who = when {
+        hit != null -> agentShortLabel(hit)
+        to.isEmpty() -> "an agent"
+        HEX.matches(to) -> to
+        else -> "@$to"
+    }
+    return when (a.tool) {
+        "send_request" -> "Asked $who: ${arg("request")}"
+        "ask_clarification" -> "Asked for clarification: ${arg("text")}"
+        "answer_clarification" -> "Answered the clarification: ${arg("text")}"
+        "complete_request" -> if (arg("outcome") == "failed") "Reported it couldn't: ${arg("result")}" else "Replied: ${arg("result")}"
+        "list_collaborators" -> "Looked up the mentioned agents"
+        else -> null
+    }
+}
+
+/**
+ * Conversations for the @ picker matching [query], not [self]: with a handle first, then others;
+ * archived ones last within each group.
+ */
+fun mentionCandidates(sessions: List<Session>, query: String, self: String?, limit: Int = 8): List<Session> {
+    val q = query.lowercase()
+    fun score(s: Session): Int = when {
+        q.isEmpty() -> if (s.handle != null) 0 else 1
+        s.handle?.startsWith(q) == true -> 0
+        s.displayTitle.lowercase().split(Regex("\\s+")).any { it.startsWith(q) } -> if (s.handle != null) 0 else 1
+        q.length >= 4 && s.id.startsWith(q) -> 2
+        else -> -1
+    }
+    return sessions.filter { it.id != self }.map { it to score(it) }.filter { it.second >= 0 }
+        .sortedWith(compareBy<Pair<Session, Int>> { it.second }.thenBy { it.first.archived == true })
+        .take(limit).map { it.first }
+}
+
+/** A handle suggested from [title] that nobody holds: numbered when taken, "agent" when the title gives none. */
+fun suggestHandle(title: String?, taken: Set<String>): String? {
+    val base = suggestHandle(title) ?: "agent"
+    if (base !in taken) return base
+    return (2..99).map { "${base.take(28)}-$it" }.firstOrNull { validHandle(it) && it !in taken }
+}
+
+/** One message in a collab turn: who sent it (null = Mob), what they did and what they wrote. */
+data class PeerPart(val senderId: String?, val name: String, val label: String, val body: String, val context: String? = null)
+
+/**
+ * What a collab turn carried, from mobd's structured deliveries when their requests are known, else
+ * from the labelled prompt (requests load after the conversation opens).
+ */
+fun peerParts(deliveries: List<Delivery>?, prompt: String, requests: List<CollabRequest>, sessions: List<Session>): List<PeerPart> {
+    val list = deliveries.orEmpty()
+    if (list.isNotEmpty() && list.all { d -> d.kind == "notice" || requests.any { it.id == d.requestId } }) {
+        return list.map { d ->
+            val r = requests.firstOrNull { it.id == d.requestId }
+            val sender = r?.let { deliverySender(d.kind, it) }
+            val session = sessions.firstOrNull { it.id == sender }
+            val saved = if (r != null && sender != null) (if (sender == r.from) r.fromName else r.toName) ?: sender else "Mob"
+            PeerPart(sender, session?.let { agentShortLabel(it) } ?: saved, deliveryLabel(d.kind, r?.status), d.text.orEmpty(), r?.text.takeIf { d.kind != "request" })
+        }
+    }
+    return parseDelivery(prompt).map { (from, body) -> PeerPart(from.takeIf { it != "Mob" }, from, "", deliveryBody(body)) }
+}

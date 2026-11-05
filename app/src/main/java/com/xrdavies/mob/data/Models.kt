@@ -133,7 +133,12 @@ data class TaskOrigin(
     val kind: String,
     val exchangeId: String? = null,
     val requests: List<String>? = null,
+    /** What a collab turn carried, in order (mobd's inbox items). */
+    val deliveries: List<Delivery>? = null,
 )
+
+/** One message mobd delivered to an agent: request, clarification, answer, result or notice. */
+data class Delivery(val id: String?, val to: String?, val requestId: String?, val kind: String?, val text: String?)
 
 data class Message(
     val id: String,
