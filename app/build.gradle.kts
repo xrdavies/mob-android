@@ -13,8 +13,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         targetSdk = 37
         // Release CI injects the tag version; local builds keep the defaults.
-        versionCode = System.getenv("MOB_VERSION_CODE")?.toInt() ?: 4000
-        versionName = System.getenv("MOB_VERSION_NAME") ?: "0.4.0"
+        versionCode = System.getenv("MOB_VERSION_CODE")?.toInt() ?: 5000
+        versionName = System.getenv("MOB_VERSION_NAME") ?: "0.5.0"
 
         vectorDrawables {
             useSupportLibrary = true
