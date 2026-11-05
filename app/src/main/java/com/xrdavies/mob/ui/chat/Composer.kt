@@ -28,9 +28,13 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.xrdavies.mob.data.MentionProblem
 import com.xrdavies.mob.data.Status
+import com.xrdavies.mob.data.insertMention
+import com.xrdavies.mob.data.resolveMentions
 import com.xrdavies.mob.ui.settings.AgentSettingsDialog
 import com.xrdavies.mob.data.TurnSettings
 import com.xrdavies.mob.data.defaultLabel
@@ -76,8 +80,12 @@ fun Composer(appState: AppState) {
     var text by remember { mutableStateOf("") }
     val attachments = remember { mutableStateListOf<Attachment>() }
     var nextKey by remember { mutableIntStateOf(0) }
+    // Agents picked with @ (session IDs), and why typed mentions stop the send.
+    var mentioned by remember { mutableStateOf(setOf<String>()) }
+    var mentionProblems by remember { mutableStateOf(emptyList<MentionProblem>()) }
 
     val h = health
+    val collaboration = h?.supports("agentCollaboration") == true
     val m = machineId.orEmpty()
     val available = h?.runners.orEmpty().filter { it.available != false }
     // A conversation keeps its runner; a new chat uses the picked one while it is available.
@@ -134,6 +142,14 @@ fun Composer(appState: AppState) {
             return
         }
         if (busy || uploading || sending) return
+        var mentions = emptyList<String>()
+        if (collaboration) {
+            val all = (chat.sessions.value + chat.archived.value.orEmpty()).distinctBy { it.id }
+            val (ids, problems) = resolveMentions(prompt, all, currentId, mentioned)
+            mentionProblems = problems
+            if (problems.isNotEmpty()) return
+            mentions = ids
+        }
         val newChat = currentId == null
         // Only a new chat names them (they become its settings); later turns use the conversation's.
         val sentModel = model.takeIf { newChat }
@@ -144,13 +160,22 @@ fun Composer(appState: AppState) {
             model = sentModel.takeIf { canOptions },
             effort = sentEffort.takeIf { canOptions },
             attachments = ready,
+            mentions = mentions,
         ) { ok ->
             if (!ok) return@send
+            mentioned = emptySet()
             // The conversation has its settings now; the next new chat starts from the defaults.
             if (newChat) appState.clearTurnPrefs(m, runnerKey)
             if (text.trim() == prompt) text = ""
             attachments.clear()
         }
+    }
+
+    val listed by chat.sessions.collectAsState()
+    val listedArchived by chat.archived.collectAsState()
+    val mentionTint = MaterialTheme.colorScheme.primary
+    val highlight = remember(collaboration, listed, listedArchived, currentId, mentionTint) {
+        if (collaboration) MentionHighlight((listed + listedArchived.orEmpty()).distinctBy { it.id }, currentId, mentionTint) else VisualTransformation.None
     }
 
     Surface(tonalElevation = 2.dp, shadowElevation = 4.dp, shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)) {
@@ -162,9 +187,18 @@ fun Composer(appState: AppState) {
                 }
             }
 
+            if (collaboration) {
+                MentionPicker(appState, text, currentId) { s ->
+                    mentioned = mentioned + s.id
+                    text = insertMention(text, s.handle ?: s.id.take(6))
+                }
+                mentionProblems.forEach { p -> MentionProblemRow(appState, p, currentId) { mentionProblems = mentionProblems - p } }
+            }
+
             OutlinedTextField(
                 value = text,
-                onValueChange = { text = it },
+                onValueChange = { text = it; mentionProblems = emptyList() },
+                visualTransformation = highlight,
                 placeholder = {
                     Text(
                         when {

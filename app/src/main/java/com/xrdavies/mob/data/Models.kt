@@ -90,6 +90,8 @@ data class Task(
     val waiting: Boolean?,
     /** The conversation revision of this turn's last change (mobd with "sessionHistory"). */
     val rev: Long? = null,
+    /** Who started the turn: null is the user; kind "collab" is a peer message from another agent. */
+    val origin: TaskOrigin? = null,
     /** The turn's 1-based position in its conversation; it never changes. */
     val seq: Long? = null,
 ) {
@@ -121,9 +123,22 @@ data class Session(
     /** The conversation's model and effort (mobd with "settings"); null = machine default. */
     val model: String? = null,
     val effort: String? = null,
+    /** The agent's name for collaboration (@api); null when it has none (mobd with "agentCollaboration"). */
+    val handle: String? = null,
 ) {
     val displayTitle get() = title?.takeIf { it.isNotBlank() } ?: "New chat"
 }
+
+data class TaskOrigin(
+    val kind: String,
+    val exchangeId: String? = null,
+    val requests: List<String>? = null,
+    /** What a collab turn carried, in order (mobd's inbox items). */
+    val deliveries: List<Delivery>? = null,
+)
+
+/** One message mobd delivered to an agent: request, clarification, answer, result or notice. */
+data class Delivery(val id: String?, val to: String?, val requestId: String?, val kind: String?, val text: String?)
 
 data class Message(
     val id: String,
@@ -203,12 +218,16 @@ data class CreateTaskRequest(
     val model: String? = null,
     val effort: String? = null,
     val attachments: List<String>? = null,
+    /** Session IDs the user picked with @; they start an agent collaboration. */
+    val mentions: List<String>? = null,
 )
 
 /** model / effort set the conversation's settings; "" returns to the machine default. */
 data class PatchSessionRequest(
     val title: String? = null, val pinned: Boolean? = null, val archived: Boolean? = null,
     val model: String? = null, val effort: String? = null,
+    /** "" clears the handle; with [takeHandle] it moves from the conversation that has it. */
+    val handle: String? = null, val takeHandle: Boolean? = null,
 )
 
 data class AnswerQuestionRequest(val answer: String? = null, val approved: Boolean? = null)

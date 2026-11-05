@@ -167,6 +167,13 @@ class ChatStore(
     private val _loadError = MutableStateFlow<String?>(null)
     val loadError: StateFlow<String?> = _loadError
 
+    /** Agent collaboration requests of the open conversation (mobd with "agentCollaboration"). */
+    private val _collab = MutableStateFlow<List<CollabRequest>>(emptyList())
+    val collab: StateFlow<List<CollabRequest>> = _collab
+
+    /** mobd shares agent collaboration; set by AppState from /health. */
+    var collaboration = false
+
     private var historyKey = ""
 
     /** mobd serves paged history ("sessionHistory"); null until /health answers. Only then is the local copy used. */
@@ -216,6 +223,7 @@ class ChatStore(
         _archived.value = null
         _detail.value = null
         _currentId.value = null
+        _collab.value = emptyList()
         cache.clear()
         _sync.value = SyncState.None
         _loading.value = false
@@ -296,6 +304,55 @@ class ChatStore(
 
     fun refreshSessions() = launch { _, _ -> loadSessions() }
 
+    /** Reloads the open conversation's collaboration requests. */
+    fun loadCollab() {
+        val id = _currentId.value
+        if (!collaboration || id == null) {
+            _collab.value = emptyList()
+            return
+        }
+        launch { client, gen ->
+            val list = client.api.getCollab(id).requests.orEmpty()
+            if (gen == generation && _currentId.value == id) _collab.value = list
+        }
+    }
+
+    /** A request changed (global "collab" event): kept when it involves the open conversation. */
+    fun applyCollab(r: CollabRequest) {
+        val id = _currentId.value ?: return
+        if (r.from != id && r.to != id) return
+        val list = _collab.value.filterNot { it.id == r.id } + r
+        _collab.value = list.sortedWith(compareBy<CollabRequest> { it.ended }.thenByDescending { it.createdAt.orEmpty() })
+    }
+
+    /** The user cancels a request from either conversation. */
+    fun cancelRequest(r: CollabRequest) = launch { client, _ ->
+        client.api.cancelRequest(r.id).orThrow()
+        loadCollab()
+    }
+
+    /** Sets ("" clears) a conversation's handle; [take] moves it from the conversation that has it. */
+    fun setHandle(s: Session, handle: String, take: Boolean = false, done: (String?) -> Unit = {}) {
+        val client = api ?: return
+        val gen = generation
+        scope.launch {
+            val problem = try {
+                client.api.patchSession(s.id, PatchSessionRequest(handle = handle, takeHandle = take.takeIf { it }))
+                null
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                e.readable()
+            }
+            if (gen != generation) return@launch
+            if (problem == null) {
+                loadSessions()
+                if (s.id == _currentId.value) reload()
+            }
+            done(problem)
+        }
+    }
+
     fun loadArchived() {
         if (_archived.value == null) _archived.value = emptyList()
         refreshSessions()
@@ -326,6 +383,8 @@ class ChatStore(
             return
         }
         _loading.value = _detail.value == null
+        _collab.value = emptyList()
+        loadCollab()
         follow(id)
     }
 
@@ -697,6 +756,7 @@ class ChatStore(
     /** After the global stream reconnected past its buffer: refetch everything. */
     fun refreshAll() {
         refreshSessions()
+        loadCollab()
         reload(indicate = true)
     }
 
@@ -707,6 +767,7 @@ class ChatStore(
         model: String? = null,
         effort: String? = null,
         attachments: List<String>? = null,
+        mentions: List<String>? = null,
         done: (Boolean) -> Unit = {},
     ) {
         _sending.value = true
@@ -715,7 +776,8 @@ class ChatStore(
         var ok = false
         launch { client, gen ->
             try {
-                val task = client.api.createTask(CreateTaskRequest(prompt, sessionId, runner, model, effort, attachments?.takeIf { it.isNotEmpty() }))
+                val task = client.api.createTask(CreateTaskRequest(prompt, sessionId, runner, model, effort,
+                    attachments?.takeIf { it.isNotEmpty() }, mentions?.takeIf { it.isNotEmpty() }))
                 ok = true
                 if (gen != generation) return@launch
                 if (task.sessionId == _currentId.value) reload() else open(task.sessionId)

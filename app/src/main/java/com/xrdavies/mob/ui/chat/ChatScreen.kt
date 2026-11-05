@@ -149,10 +149,14 @@ fun ChatScreen(appState: AppState, onOpenDrawer: (() -> Unit)?, onOpenSettings: 
                 },
                 title = {
                     Column {
-                        Text(
-                            if (currentId == null) "New chat" else detail?.session?.displayTitle ?: "…",
-                            maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium,
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                if (currentId == null) "New chat" else detail?.session?.displayTitle ?: "…",
+                                maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            if (currentId != null) HandleBadge(detail?.session?.handle)
+                        }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(7.dp).background(if (isConnected) Color(0xFF22C55E) else Color(0xFFEF4444), CircleShape))
                             Spacer(Modifier.width(6.dp))
@@ -214,6 +218,7 @@ fun ChatScreen(appState: AppState, onOpenDrawer: (() -> Unit)?, onOpenSettings: 
                     }
                     ResourceBanner(appState, Modifier.widthIn(max = 840.dp).padding(8.dp))
                     AnimatedVisibility(visible = !side && showDesktop && machine != null) { DesktopDrawer(appState) }
+                    if (currentId != null) CollabStrip(appState, Modifier.widthIn(max = 840.dp).padding(horizontal = 8.dp, vertical = 4.dp))
 
                     Box(Modifier.weight(1f).widthIn(max = 840.dp).fillMaxWidth()) {
                         when {

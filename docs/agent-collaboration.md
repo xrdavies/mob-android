@@ -51,3 +51,26 @@ delivery covers existing agents on one mobd.
 Validate the A/B exchange, user control and reopening after disconnection first.
 UI component details, API models and cache changes follow after the shared
 implementation contract is defined.
+
+## Status: Android (feat/agent-collab-core)
+
+Matches Desktop's collaboration design. Checked on an emulator (API 37) against the office mobd
+running `feat/agent-collab-core`, 2026-11-05.
+
+- **Handles:** the badge shows next to the title; the chat menu's "Agent handle" opens a dialog with a
+  fixed `@`, input kept to allowed characters, the rule broken as you type, a suggestion chip, and
+  Remove apart from Save. A handle another conversation holds is moved only after the dialog says
+  whose it is ("Move @heron here").
+- **@ picker:** typing `@` lists "Agents" (with a handle) first, then "Conversations", without the open
+  one. Picking a conversation without a handle offers "Name it @off-road" or "Mention as @b9b040".
+  Archived agents are greyed out, with Unarchive and "Give @handle here". Typed mentions are resolved
+  on send and stop it when unknown or archived. Resolved mentions are highlighted while typing.
+- **Who says what:** only your messages are on the right; mentions in them are tinted links that open
+  the agent. Another agent's message is on the left with its own colour, name (opens its
+  conversation), framework and what it did ("asks", "replied"), without mobd's instructions to the
+  recipient. Collaboration steps read "Asked @heron: …", "Replied: …".
+- **Pending requests:** a strip above the timeline; tapping one shows its text, thread and result, with
+  Cancel. Ended requests can be dismissed.
+
+Not verified on the emulator: naming an agent from the picker (Enter writes a handle), a
+clarification, and a new exchange started from the phone.

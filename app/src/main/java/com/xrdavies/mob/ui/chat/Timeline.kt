@@ -40,7 +40,7 @@ import com.xrdavies.mob.viewmodel.AppState
 private val Success = Color(0xFF16A34A)
 private val Warning = Color(0xFFD97706)
 
-private val RUNNER_LABELS = mapOf("codex" to "Codex", "claude" to "Claude Code", "pi" to "Pi")
+internal val RUNNER_LABELS = mapOf("codex" to "Codex", "claude" to "Claude Code", "pi" to "Pi")
 
 /** One timeline entry. [last] marks the newest turn footer (it offers Retry). */
 @Composable
@@ -59,6 +59,10 @@ fun TimelineRow(item: TimelineItem, appState: AppState, runner: String?, last: B
 
 @Composable
 private fun UserMessage(message: Message, task: Task?, appState: AppState) {
+    if (task?.origin?.kind == "collab") {
+        PeerMessage(task, message, appState)
+        return
+    }
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         task?.attachments?.takeIf { it.isNotEmpty() }?.let { ids ->
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -72,7 +76,7 @@ private fun UserMessage(message: Message, task: Task?, appState: AppState) {
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.widthIn(max = 300.dp),
         ) {
-            Text(message.content, Modifier.padding(horizontal = 14.dp, vertical = 10.dp), color = MaterialTheme.colorScheme.onPrimary)
+            MentionText(message.content, appState, MaterialTheme.colorScheme.onPrimary, Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
         }
     }
 }
@@ -133,6 +137,7 @@ private fun StepStatus(a: Activity) {
 @Composable
 fun ActivityRow(a: Activity, appState: AppState) {
     var open by remember(a.id) { mutableStateOf(false) }
+    val sessions by appState.chat.sessions.collectAsState()
     val notice = a.kind == "notice"
     val meta = when (a.kind) {
         "tool" -> a.tool.orEmpty()
@@ -149,7 +154,7 @@ fun ActivityRow(a: Activity, appState: AppState) {
             StepStatus(a)
             Spacer(Modifier.width(8.dp))
             Text(
-                a.title, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                collabStepTitle(a, sessions) ?: a.title, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodyMedium,
                 fontStyle = if (a.kind == "reasoning") FontStyle.Italic else FontStyle.Normal,
                 color = when {
@@ -239,6 +244,7 @@ private fun ActivityGroup(activities: List<Activity>, appState: AppState) {
     val latest = activities.last()
     val failed = activities.count { it.status == "failed" }
     val running = activities.any { it.status == "running" }
+    val sessions by appState.chat.sessions.collectAsState()
     Column(Modifier.padding(start = 34.dp).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))) {
         Row(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { open = !open }.padding(horizontal = 10.dp, vertical = 8.dp),
@@ -251,7 +257,7 @@ private fun ActivityGroup(activities: List<Activity>, appState: AppState) {
             Text(" · " + duration(activities.first().startedAt, latest.updatedAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (failed > 0) Text(" · $failed failed", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             Text(
-                if (open) "" else latest.title, Modifier.weight(1f).padding(start = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                if (open) "" else collabStepTitle(latest, sessions) ?: latest.title, Modifier.weight(1f).padding(start = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Icon(Icons.Filled.ChevronRight, null, Modifier.size(16.dp).rotate(if (open) 90f else 0f), tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -282,12 +288,13 @@ private fun Working(item: TimelineItem.Working, appState: AppState) {
             tick++
         }
     }
+    val sessions by appState.chat.sessions.collectAsState()
     val (color, label) = when {
         cancelling -> MaterialTheme.colorScheme.error to "Stopping…"
         item.waiting -> Color(0xFFD97706) to "Waiting for your answer"
         // Reading tick recomposes this line every second.
         else -> MaterialTheme.colorScheme.primary to
-            listOfNotNull("Working", tick.let { duration(item.task.startedAt, null) }.takeIf { it.isNotEmpty() }, item.latest?.title).joinToString(" · ")
+            listOfNotNull("Working", tick.let { duration(item.task.startedAt, null) }.takeIf { it.isNotEmpty() }, item.latest?.let { collabStepTitle(it, sessions) ?: it.title }).joinToString(" · ")
     }
     Row(Modifier.padding(start = 34.dp), verticalAlignment = Alignment.CenterVertically) {
         if (!cancelling && !item.waiting) CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)

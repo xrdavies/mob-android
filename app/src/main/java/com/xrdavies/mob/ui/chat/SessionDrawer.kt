@@ -360,13 +360,20 @@ private fun SessionRow(
 ) {
     val chat = appState.chat
     var menu by remember { mutableStateOf(false) }
+    val health by appState.health.collectAsState()
+    var naming by remember { mutableStateOf(false) }
+    if (naming) HandleDialog(appState, s) { naming = false }
     NavigationDrawerItem(
         label = {
             Column {
-                Text(
-                    s.displayTitle, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        s.displayTitle, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    HandleBadge(s.handle, archived = s.archived == true)
+                }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (perSession && desktop?.open == true) {
                         Icon(
@@ -395,6 +402,14 @@ private fun SessionRow(
                         menu = false
                         onRename()
                     })
+                    if (health?.supports("agentCollaboration") == true) DropdownMenuItem(
+                        text = { Text("Agent handle") },
+                        leadingIcon = { Icon(Icons.Filled.AlternateEmail, null) },
+                        onClick = {
+                            menu = false
+                            naming = true
+                        },
+                    )
                     if (s.archived != true) DropdownMenuItem(
                         text = { Text(if (s.pinned == true) "Unpin" else "Pin") },
                         leadingIcon = { Icon(Icons.Filled.PushPin, null) },

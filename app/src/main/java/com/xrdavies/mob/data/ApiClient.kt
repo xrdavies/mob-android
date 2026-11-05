@@ -71,6 +71,12 @@ interface MobApi {
     @DELETE("sessions/{id}")
     suspend fun deleteSession(@Path("id") id: String): Response<Unit>
 
+    @GET("collab")
+    suspend fun getCollab(@Query("session") sessionId: String): CollabState
+
+    @POST("collab/requests/{id}/cancel")
+    suspend fun cancelRequest(@Path("id") id: String): Response<Unit>
+
     @POST("tasks/{taskId}/questions/{questionId}/answer")
     suspend fun answerQuestion(
         @Path("taskId") taskId: String,
