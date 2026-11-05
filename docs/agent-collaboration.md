@@ -52,7 +52,7 @@ Validate the A/B exchange, user control and reopening after disconnection first.
 UI component details, API models and cache changes follow after the shared
 implementation contract is defined.
 
-## Status: Android (feat/agent-collab-core)
+## Status: Android
 
 Matches Desktop's collaboration design. Checked on an emulator (API 37) against the office mobd
 running `feat/agent-collab-core`, 2026-11-05.
