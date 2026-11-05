@@ -1,6 +1,7 @@
 # USB redirection: Android scope
 
-Status: draft USB-1, 2026-11-01. Not implemented or released.
+Status: USB-2, 2026-11-06. Nothing to build in Android for the first version: phones neither
+share USB devices nor control Desktop's shares. mobd and Mob Desktop implement it; not released.
 
 The [mobd USB design](https://github.com/xrdavies/mobd/blob/main/docs/usb-redirection.md)
 is the canonical contract. Mob Desktop exports a selected local USB device and
