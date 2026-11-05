@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xrdavies.mob.data.MentionProblem
@@ -170,6 +171,13 @@ fun Composer(appState: AppState) {
         }
     }
 
+    val listed by chat.sessions.collectAsState()
+    val listedArchived by chat.archived.collectAsState()
+    val mentionTint = MaterialTheme.colorScheme.primary
+    val highlight = remember(collaboration, listed, listedArchived, currentId, mentionTint) {
+        if (collaboration) MentionHighlight((listed + listedArchived.orEmpty()).distinctBy { it.id }, currentId, mentionTint) else VisualTransformation.None
+    }
+
     Surface(tonalElevation = 2.dp, shadowElevation = 4.dp, shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
 
@@ -190,6 +198,7 @@ fun Composer(appState: AppState) {
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it; mentionProblems = emptyList() },
+                visualTransformation = highlight,
                 placeholder = {
                     Text(
                         when {
