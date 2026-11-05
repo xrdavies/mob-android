@@ -355,7 +355,14 @@ class StreamSession(context: Context) : LiveSession {
         var player: WsPlayer? = null
         var pcOpen = true
         var lastRtt: Int? = null
-        private val grace = Runnable { startWs(preferWebSocket) }
+        // Still connecting at the end of the head start (a relayed path, seconds per round trip, mobd
+        // docs/live-view-cellular-investigation.md): keep WebRTC and race the WebSocket beside it.
+        // Dropping it lost sessions that connected a moment later.
+        private val grace = Runnable {
+            val connecting = pcOpen && pc.connectionState() == PeerConnection.PeerConnectionState.CONNECTING
+            if (connecting) Log.add("live view: WebRTC still connecting after ${ms()} ms, racing the WebSocket")
+            startWs(preferWebSocket || connecting)
+        }
         val started = System.currentTimeMillis()
         val pc: PeerConnection
         var control: DataChannel? = null
@@ -562,6 +569,9 @@ class StreamSession(context: Context) : LiveSession {
             if (!current() || via != null || player != null || id == null) return
             Log.add(if (race) "live view: WebSocket beside WebRTC after ${ms()} ms (needed here last time)" else "live view: no WebRTC after ${ms()} ms, using the WebSocket")
             if (!race) dropWebRTC()
+            // The WebSocket gets its own time: on a slow path it can open late in the first window.
+            main.removeCallbacks(timeout)
+            main.postDelayed(timeout, 15_000)
             val url = client.baseUrl.newBuilder().addPathSegments("stream/ws").addQueryParameter("session", id).build().toString()
             nudge() // decoders that hold the first picture need a second keyframe on an idle desktop
             player = WsPlayer(client.okHttpClient, url, egl.eglBaseContext, { sinks }, object : WsPlayer.Events {
