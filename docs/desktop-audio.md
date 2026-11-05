@@ -1,6 +1,6 @@
 # Remote desktop audio (Android)
 
-Status: implemented on `feat/remote-audio` (WebRTC). No sound over the WebSocket fallback, by decision.
+Status: implemented (WebRTC). No sound over the WebSocket fallback, by decision.
 
 You hear the office computer's sound in the live view on Android phones and tablets. The
 protocol, stages and capture are in [mobd's desktop audio doc](https://github.com/xrdavies/mobd/blob/main/docs/desktop-audio.md):

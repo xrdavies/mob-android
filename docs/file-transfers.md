@@ -1,6 +1,6 @@
 # File transfers
 
-The [shared mobd contract](https://github.com/xrdavies/mobd/blob/feat/file-transfers/docs/file-transfers.md) defines the remote directory,
+The [shared mobd contract](https://github.com/xrdavies/mobd/blob/main/docs/file-transfers.md) defines the remote directory,
 tus 1.0 uploads, authenticated Range downloads, completion/checksums and acceptance cases.
 
 The Files tab lists the office computer's shared folder (`~/mob-files`): folders first, opened by
@@ -20,4 +20,4 @@ service, folder sync, remote deletion and agent prompt changes are outside this 
 
 `./gradlew :app:testDebugUnitTest` covers URL/range validation. Set `MOB_FILE_TEST_FIXTURE` to the isolated fixture JSON for the JVM SDK integration test. `FileTransferDeviceTest` runs the same protocol on Android with instrumentation arguments `fileTestUrl` and `fileTestToken`; use `10.0.2.2` in place of `127.0.0.1` for the emulator.
 
-See the [shared verification record](https://github.com/xrdavies/mobd/blob/feat/file-transfers/docs/file-transfer-verification.md) for coverage and limits.
+See the [shared verification record](https://github.com/xrdavies/mobd/blob/main/docs/file-transfer-verification.md) for coverage and limits.
