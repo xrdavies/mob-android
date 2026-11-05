@@ -54,17 +54,23 @@ implementation contract is defined.
 
 ## Status: Android (feat/agent-collab-core)
 
-Built against mobd's `feat/agent-collab-core` API, not yet tested with a real mobd or a device.
+Matches Desktop's collaboration design. Checked on an emulator (API 37) against the office mobd
+running `feat/agent-collab-core`, 2026-11-05.
 
-- **Handles:** the badge shows next to the title; the chat menu sets, clears or moves a handle.
-  Moving asks first when the handle belongs to another conversation.
-- **@ picker:** typing `@` above the composer lists conversations, handles first. Archived agents
-  are greyed out, with Unarchive and "Give @handle here". Picked agents are sent as session IDs
-  with the message; typed mentions are resolved on send and block the send when unknown or archived.
-- **Pending requests:** a strip above the timeline lists unfinished requests and requests that need
-  you. Tapping one opens its text, thread and result, with Cancel. Ended requests can be dismissed.
-- **Peer messages:** a turn started by another agent shows as "From <agent>", not as your message.
-- **Live updates:** the global `collab` event updates the strip; it reloads on open and on refresh.
+- **Handles:** the badge shows next to the title; the chat menu's "Agent handle" opens a dialog with a
+  fixed `@`, input kept to allowed characters, the rule broken as you type, a suggestion chip, and
+  Remove apart from Save. A handle another conversation holds is moved only after the dialog says
+  whose it is ("Move @heron here").
+- **@ picker:** typing `@` lists "Agents" (with a handle) first, then "Conversations", without the open
+  one. Picking a conversation without a handle offers "Name it @off-road" or "Mention as @b9b040".
+  Archived agents are greyed out, with Unarchive and "Give @handle here". Typed mentions are resolved
+  on send and stop it when unknown or archived. Resolved mentions are highlighted while typing.
+- **Who says what:** only your messages are on the right; mentions in them are tinted links that open
+  the agent. Another agent's message is on the left with its own colour, name (opens its
+  conversation), framework and what it did ("asks", "replied"), without mobd's instructions to the
+  recipient. Collaboration steps read "Asked @heron: …", "Replied: …".
+- **Pending requests:** a strip above the timeline; tapping one shows its text, thread and result, with
+  Cancel. Ended requests can be dismissed.
 
-Not verified: a real two-agent exchange in the app, the picker on a phone, and the handle dialog's
-move flow.
+Not verified on the emulator: naming an agent from the picker (Enter writes a handle), a
+clarification, and a new exchange started from the phone.
