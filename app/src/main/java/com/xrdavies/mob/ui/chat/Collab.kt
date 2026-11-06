@@ -294,8 +294,14 @@ private fun RequestSheet(appState: AppState, r: CollabRequest, onClose: () -> Un
         },
         confirmButton = { TextButton(onClick = onClose) { Text("Close") } },
         dismissButton = {
-            if (!r.ended) TextButton(onClick = { appState.chat.cancelRequest(r); onClose() }) {
-                Text("Cancel request", color = MaterialTheme.colorScheme.error)
+            if (!r.ended) Column(horizontalAlignment = Alignment.End) {
+                TextButton(onClick = { appState.chat.cancelRequest(r); onClose() }) {
+                    Text("Cancel request", color = MaterialTheme.colorScheme.error)
+                }
+                // Being handled: the other agent's turn keeps working unless it is stopped too.
+                if (r.status == "in_progress") TextButton(onClick = { appState.chat.cancelRequest(r, stopTurn = true); onClose() }) {
+                    Text("Cancel and stop its turn", color = MaterialTheme.colorScheme.error)
+                }
             }
         },
     )
