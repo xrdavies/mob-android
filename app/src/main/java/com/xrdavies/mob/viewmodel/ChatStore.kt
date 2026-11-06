@@ -325,9 +325,10 @@ class ChatStore(
         _collab.value = list.sortedWith(compareBy<CollabRequest> { it.ended }.thenByDescending { it.createdAt.orEmpty() })
     }
 
-    /** The user cancels a request from either conversation. */
-    fun cancelRequest(r: CollabRequest) = launch { client, _ ->
-        client.api.cancelRequest(r.id).orThrow()
+    /** The user cancels a request from either conversation; [stopTurn] also stops the other agent's
+     *  turn working on it (mobd keeps one that handles another request too). */
+    fun cancelRequest(r: CollabRequest, stopTurn: Boolean = false) = launch { client, _ ->
+        client.api.cancelRequest(r.id, stopTurn.takeIf { it }).orThrow()
         loadCollab()
     }
 

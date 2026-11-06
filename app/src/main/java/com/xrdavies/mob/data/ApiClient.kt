@@ -75,7 +75,7 @@ interface MobApi {
     suspend fun getCollab(@Query("session") sessionId: String): CollabState
 
     @POST("collab/requests/{id}/cancel")
-    suspend fun cancelRequest(@Path("id") id: String): Response<Unit>
+    suspend fun cancelRequest(@Path("id") id: String, @Query("stopTurn") stopTurn: Boolean? = null): Response<Unit>
 
     @POST("tasks/{taskId}/questions/{questionId}/answer")
     suspend fun answerQuestion(
