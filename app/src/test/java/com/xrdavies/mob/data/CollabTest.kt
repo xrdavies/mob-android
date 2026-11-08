@@ -143,6 +143,18 @@ class CollabTest {
     }
 
     @Test
+    fun taskTitles() {
+        val base = Task("t", "s", "codex", "Fix the tests", null, null, "succeeded", 0, null, null, null, null, null, null, null, null, null, null)
+        assertEquals("Fix the tests", taskTitle(base))
+        val delivered = base.copy(prompt = "These messages come from other agents…",
+            origin = TaskOrigin("collab", deliveries = listOf(Delivery("d", "s", "r", "result", " BLUE "))))
+        assertEquals("Reply: BLUE", taskTitle(delivered))
+        val older = base.copy(prompt = "Preamble\n\n[Mob collaboration · from @heron · request r-1 · exchange x-1]\nRequest: What colour?",
+            origin = TaskOrigin("collab"))
+        assertEquals("@heron: What colour?", taskTitle(older))
+    }
+
+    @Test
     fun labelsAndStepTitles() {
         assertEquals("${"x".repeat(31)}… (962ae4)", agentShortLabel(session("962ae4ff", title = "x".repeat(40))))
         assertEquals("@heron", agentShortLabel(session("2ead98", "heron", "B")))

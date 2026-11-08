@@ -192,6 +192,28 @@ fun deliveryBody(body: String): String = body
     .replace(Regex("^Result of your request \"(?:[^\"\\\\]|\\\\.)*\" to .+? \\((\\w+)\\):\\n"), "")
     .trim()
 
+/**
+ * What a list of tasks shows for one. A collaboration turn's prompt is mobd's instructions to the
+ * agent, not the user's words: it shows what was delivered ("Reply: …") instead.
+ */
+fun taskTitle(task: Task): String {
+    val origin = task.origin
+    if (origin?.kind == "collab") {
+        origin.deliveries?.firstOrNull { !it.text.isNullOrBlank() }?.let { d ->
+            val kind = when (d.kind) {
+                "request" -> "Request: "
+                "clarification" -> "Question: "
+                "answer" -> "Answer: "
+                "result" -> "Reply: "
+                else -> ""
+            }
+            return kind + d.text.orEmpty().trim()
+        }
+        parseDelivery(task.prompt.orEmpty()).firstOrNull()?.let { (from, body) -> return "$from: ${deliveryBody(body)}" }
+    }
+    return task.prompt.orEmpty()
+}
+
 /** A delivered turn's prompt split into its messages: who sent each, and the text. */
 fun parseDelivery(prompt: String): List<Pair<String, String>> =
     prompt.split("\n\n---\n\n").mapNotNull { part ->

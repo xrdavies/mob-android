@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.xrdavies.mob.data.taskTitle
 import com.xrdavies.mob.data.Status
 import com.xrdavies.mob.data.Task
 import com.xrdavies.mob.data.queueReasonText
@@ -88,7 +89,7 @@ fun TaskCard(task: Task, onClick: () -> Unit) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    task.prompt.orEmpty(), style = MaterialTheme.typography.bodyLarge,
+                    taskTitle(task), style = MaterialTheme.typography.bodyLarge,
                     maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(8.dp))
