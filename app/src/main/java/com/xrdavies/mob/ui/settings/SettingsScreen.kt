@@ -155,7 +155,7 @@ fun SettingsScreen(appState: AppState) {
         AlertDialog(
             onDismissRequest = { deleting = null },
             title = { Text("Remove ${m.name}?") },
-            text = { Text("Only removes it from this phone. Chats stay on the office computer.") },
+            text = { Text("Removes it from this phone, and this phone from its device list. Chats stay on the office computer.") },
             confirmButton = {
                 TextButton(onClick = {
                     appState.deleteMachine(m.id)

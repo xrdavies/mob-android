@@ -21,6 +21,9 @@ import com.xrdavies.mob.data.Status
 import com.xrdavies.mob.data.decodeMachines
 import com.xrdavies.mob.data.isUnauthorized
 import com.xrdavies.mob.data.pair as redeemInvite
+import com.xrdavies.mob.data.MachineAddress
+import com.xrdavies.mob.data.UnpairResult
+import com.xrdavies.mob.data.unpair
 import com.xrdavies.mob.data.readable
 import com.xrdavies.mob.data.sessionDesktops
 import com.xrdavies.mob.notify.Notifier
@@ -68,6 +71,11 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     val health: StateFlow<Health?> = _health
 
     /** Why the last health check failed; null when connected or not checked yet. */
+    /** Set when an office computer could not remove this phone's pairing; the app shows it. */
+    private val _unpairWarning = MutableStateFlow<String?>(null)
+    val unpairWarning: StateFlow<String?> = _unpairWarning
+    fun dismissUnpairWarning() { _unpairWarning.value = null }
+
     private val _healthError = MutableStateFlow<String?>(null)
     val healthError: StateFlow<String?> = _healthError
 
@@ -223,6 +231,7 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     }
 
     fun deleteMachine(id: String) {
+        _machines.value.firstOrNull { it.id == id }?.let { unpairAddresses(it, it.addresses) }
         val updated = _machines.value.filterNot { it.id == id }
         setWaiting(id) { emptySet() }
         saveMachines(updated)
@@ -278,10 +287,35 @@ class AppState(context: Context) : ViewModel(), MachineEvents {
     fun removeAddress(machine: String, address: String) {
         val m = _machines.value.firstOrNull { it.id == machine } ?: return
         if (m.addresses.size < 2) return deleteMachine(machine)
+        unpairAddresses(m, m.addresses.filter { it.id == address })
         secrets.delete(SecretStore.token(address))
         _routeUp.value = _routeUp.value - machine
         liveMachines -= machine
         saveMachine(m.copy(addresses = m.addresses.filterNot { it.id == address }, route = m.route?.takeIf { it != address }))
+    }
+
+    /**
+     * Removes this phone's pairing at each address that still has a credential, so it leaves the
+     * office computer's device list. The tokens are read now, before the caller deletes them; the
+     * phone forgets the machine without waiting.
+     */
+    private fun unpairAddresses(m: Machine, addresses: List<MachineAddress>) {
+        val targets = addresses.mapNotNull { a ->
+            secrets.get(SecretStore.token(a.id))?.takeIf { a.needsPairing != true && it.isNotBlank() }?.let { a.url to it }
+        }
+        if (targets.isEmpty()) return
+        viewModelScope.launch {
+            val kept = targets.filter { (url, token) ->
+                when (unpair(url, token, pairingHttp)) {
+                    UnpairResult.Removed -> { Log.add("${m.name}: removed this phone's pairing at $url"); false }
+                    UnpairResult.Unsupported -> { Log.error("${m.name}: $url cannot remove pairings (mobd too old)"); true }
+                    UnpairResult.Failed -> { Log.error("${m.name}: could not reach $url to remove this phone's pairing"); true }
+                }
+            }.map { (url, _) -> runCatching { url.toHttpUrl().host }.getOrDefault(url) }
+            if (kept.isNotEmpty()) {
+                _unpairWarning.value = "Removed from this phone, but ${kept.joinToString()} still lists it. Remove it there with mobd clients delete, or from Mob on that computer."
+            }
+        }
     }
 
     /** Saves the name and address labels from the editor; addresses and pairing stay as stored. */

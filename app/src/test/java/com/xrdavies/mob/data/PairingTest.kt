@@ -138,4 +138,21 @@ class PairingTest {
             assertTrue(e.message!!.contains("different server ID"))
         }
     }
+
+    @Test
+    fun unpairRemovesThisDevicesPairingWithItsOwnCredential() {
+        for ((code, want) in listOf(204 to UnpairResult.Removed, 401 to UnpairResult.Removed, 404 to UnpairResult.Removed,
+            405 to UnpairResult.Unsupported, 500 to UnpairResult.Failed)) {
+            server.enqueue(MockResponse().setResponseCode(code))
+            assertEquals("status $code", want, runBlocking { unpair(server.url("/").toString(), "T", OkHttpClient()) })
+            val req = server.takeRequest()
+            assertEquals("DELETE", req.method)
+            assertEquals("/pair", req.path)
+            assertEquals("Bearer T", req.getHeader("Authorization"))
+        }
+        val down = MockWebServer().apply { start() }
+        val origin = down.url("/").toString()
+        down.shutdown()
+        assertEquals(UnpairResult.Failed, runBlocking { unpair(origin, "T", OkHttpClient()) })
+    }
 }

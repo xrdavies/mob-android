@@ -11,6 +11,7 @@ import java.io.IOException
 import java.net.URI
 import java.net.URISyntaxException
 import java.net.URLDecoder
+import java.util.concurrent.TimeUnit
 
 /** A pairing step failed; the message is meant for the user. */
 class PairException(message: String) : IOException(message)
@@ -122,4 +123,24 @@ suspend fun pair(link: PairLink, name: String, client: OkHttpClient): PairResult
         }
         PairResult(serverId, clientId, token)
     }
+}
+
+/** What mobd did with DELETE /pair. */
+enum class UnpairResult { Removed, Unsupported, Failed }
+
+/** 401 and 404: the credential no longer works there, so nothing is left to remove. 405: a mobd from before DELETE /pair. */
+fun unpairResult(code: Int): UnpairResult = when {
+    code in 200..299 || code == 401 || code == 404 -> UnpairResult.Removed
+    code == 405 -> UnpairResult.Unsupported
+    else -> UnpairResult.Failed
+}
+
+/**
+ * Removes this device's own pairing at [origin] (mobd's DELETE /pair, feature unpair), so it leaves
+ * the office computer's device list. Never throws: the app forgets the machine either way.
+ */
+suspend fun unpair(origin: String, token: String, client: OkHttpClient): UnpairResult = withContext(Dispatchers.IO) {
+    val http = client.newBuilder().followRedirects(false).followSslRedirects(false).callTimeout(5, TimeUnit.SECONDS).build()
+    val request = Request.Builder().url("${origin.trimEnd('/')}/pair").delete().header("Authorization", "Bearer $token").build()
+    runCatching { http.newCall(request).execute().use { unpairResult(it.code) } }.getOrDefault(UnpairResult.Failed)
 }

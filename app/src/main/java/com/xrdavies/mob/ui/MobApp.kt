@@ -40,6 +40,15 @@ fun MobApp(appState: AppState) {
 
     val showChat by appState.showChat.collectAsState()
     val waiting by appState.waitingCount.collectAsState()
+    val unpairWarning by appState.unpairWarning.collectAsState()
+    unpairWarning?.let { text ->
+        AlertDialog(
+            onDismissRequest = appState::dismissUnpairWarning,
+            title = { Text("Still paired on the office computer") },
+            text = { Text(text) },
+            confirmButton = { TextButton(onClick = appState::dismissUnpairWarning) { Text("OK") } },
+        )
+    }
     LaunchedEffect(showChat) {
         if (showChat > 0) {
             drawer.close()
