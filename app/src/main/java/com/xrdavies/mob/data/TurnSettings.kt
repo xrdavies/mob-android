@@ -17,16 +17,55 @@ data class MachineSettings(val rev: Long, val defaultAgent: String, val agents: 
 
 /** GET /settings: the file, and per agent its label, efforts and own defaults. */
 data class SettingsInfo(val settings: MachineSettings, val agents: Map<String, AgentInfo>?, val installed: List<Installed>? = null) {
-    data class AgentInfo(val label: String?, val efforts: List<String>?, val agentDefaultModel: String?, val agentDefaultEffort: String?)
+    /** agentModels: the models the agent itself reports (ACP agents), offered to add. */
+    data class AgentInfo(
+        val label: String?, val efforts: List<String>?, val agentDefaultModel: String?, val agentDefaultEffort: String?,
+        val agentModels: List<String>? = null,
+    )
 
     /** Whether a supported agent is set up on the machine, enabled or not. */
-    data class Installed(val name: String, val label: String?, val state: String, val enabled: Boolean?, val detail: String?, val install: String?) {
+    data class Installed(
+        val name: String, val label: String?, val state: String, val enabled: Boolean?, val detail: String?, val install: String?,
+        /** "native" (mobd's own adapter) or "acp" (Agent Client Protocol). */
+        val protocol: String? = null,
+        /** Its config.json settings (feature agentOptions), drawn by AgentOptionRows. */
+        val options: List<AgentOption>? = null,
+    ) {
         /** ready, disabled (installed, not enabled), missing, error. */
         val stateLabel get() = when (state) {
             "disabled" -> "Installed, not enabled"
             "missing" -> "Not installed"
             "error" -> "Not working"
             else -> state
+        }
+    }
+}
+
+/**
+ * One of an agent's config.json settings (agents.<name>.<key>), drawn by its type: bool, choice, path,
+ * text or number. value is a String, Boolean or Double as Gson reads it.
+ */
+data class AgentOption(
+    val key: String,
+    val label: String,
+    val help: String? = null,
+    val type: String,
+    val choices: List<Choice>? = null,
+    val value: Any? = null,
+    /** Applies when mobd restarts. */
+    val restart: Boolean? = null,
+    /** Set by a flag or environment variable on the computer: read-only. */
+    val overridden: Boolean? = null,
+) {
+    data class Choice(val value: String, val label: String)
+
+    companion object {
+        /** An option value as text; whole numbers without ".0". */
+        fun text(v: Any?): String = when (v) {
+            null -> ""
+            is Double -> if (v % 1.0 == 0.0) v.toLong().toString() else v.toString()
+            is String, is Boolean -> v.toString()
+            else -> ""
         }
     }
 }

@@ -43,7 +43,8 @@ private fun Throwable.code(): String? = (this as? HttpException)?.response()?.er
 
 /**
  * Machine settings shared by every device: the default agent, and per agent its models,
- * default model and effort, and permissions (mobd with "settings").
+ * default model and effort, and permissions (mobd with "settings"), plus the agent's config.json
+ * options from mobd (AgentOptionRows, saved at once and applied on restart).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,6 +67,9 @@ fun AgentSettingsDialog(appState: AppState, machine: Machine, focus: String? = n
     /** Which agents mobd runs (config.json, mobd with remote maintenance). */
     val maintenance = remember(machine) { MaintenanceModel(client) }
     fun label(name: String) = info?.agents?.get(name)?.label ?: name
+    /** The agent's config.json options, when this mobd lists them and allows changing its config. */
+    fun options(name: String) = info?.installed?.firstOrNull { it.name == name }?.options
+        ?.takeIf { it.isNotEmpty() && maintenance.supported == true }
 
     suspend fun load() {
         try {
@@ -240,7 +244,15 @@ fun AgentSettingsDialog(appState: AppState, machine: Machine, focus: String? = n
                                 "Models offered",
                                 style = MaterialTheme.typography.labelLarge,
                             )
-                            if (models.isEmpty()) Text("None listed: chats use the default model.", style = MaterialTheme.typography.bodySmall)
+                            val reported = agent.agentModels.orEmpty().filter { it !in models }
+                            if (models.isEmpty()) Text(
+                                when (reported.size) {
+                                    0 -> "None listed: chats use the default model."
+                                    1 -> "None listed: chats offer the model ${label(name)} reports."
+                                    else -> "None listed: chats offer the ${reported.size} models ${label(name)} reports."
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                            )
                             for (m in models) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(m, fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f))
@@ -267,16 +279,26 @@ fun AgentSettingsDialog(appState: AppState, machine: Machine, focus: String? = n
                                 )
                                 OutlinedButton(onClick = { add() }, enabled = adding[name].orEmpty().isNotBlank()) { Text("Add") }
                             }
+                            if (reported.isNotEmpty()) {
+                                Choice("Add a model ${label(name)} reports", "", reported.map { it to it }) { m -> update { it.copy(models = it.models + m) } }
+                            }
                             Choice("Default model", a.defaultModel, listOf("" to agentDefault(agent.agentDefaultModel)) + models.map { it to it }) { v2 ->
                                 update { it.copy(defaultModel = v2) }
                             }
-                            Choice("Default effort", a.defaultEffort, listOf("" to agentDefault(agent.agentDefaultEffort)) + agent.efforts.orEmpty().map { it to it }) { v2 ->
-                                update { it.copy(defaultEffort = v2) }
+                            if (!agent.efforts.isNullOrEmpty()) {
+                                Choice("Default effort", a.defaultEffort, listOf("" to agentDefault(agent.agentDefaultEffort)) + agent.efforts.map { it to it }) { v2 ->
+                                    update { it.copy(defaultEffort = v2) }
+                                }
                             }
                             Choice(
                                 "Permissions", a.permissions,
                                 listOf("bypass" to permissionLabel("bypass"), "approve" to permissionLabel("approve")),
                             ) { v2 -> update { it.copy(permissions = v2) } }
+                            options(name)?.let { opts ->
+                                HorizontalDivider()
+                                Text("Program · saved at once, applies when mobd restarts", style = MaterialTheme.typography.labelLarge)
+                                AgentOptionRows(name, opts, maintenance)
+                            }
                         }
                     }
                 }
@@ -297,6 +319,8 @@ fun AgentSettingsDialog(appState: AppState, machine: Machine, focus: String? = n
                                         Text("Copy: $cmd", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, maxLines = 1)
                                     }
                                 }
+                                // Its program can be pointed at before it is turned on.
+                                options(o.name)?.let { AgentOptionRows(o.name, it, maintenance) }
                             }
                             Text(
                                 if (maintenance.supported == true) "Install a missing agent on ${machine.name}, then turn it on above."
@@ -314,11 +338,11 @@ fun AgentSettingsDialog(appState: AppState, machine: Machine, focus: String? = n
 /** A labelled dropdown of (value, label) choices. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun Choice(label: String, value: String, options: List<Pair<String, String>>, onChange: (String) -> Unit) {
+internal fun Choice(label: String, value: String, options: List<Pair<String, String>>, enabled: Boolean = true, onChange: (String) -> Unit) {
     var open by remember { mutableStateOf(false) }
-    ExposedDropdownMenuBox(open, { open = it }) {
+    ExposedDropdownMenuBox(open, { if (enabled) open = it }) {
         OutlinedTextField(
-            options.firstOrNull { it.first == value }?.second ?: value, {}, readOnly = true, label = { Text(label) },
+            options.firstOrNull { it.first == value }?.second ?: value, {}, readOnly = true, enabled = enabled, label = { Text(label) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(open) },
             modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable),
         )

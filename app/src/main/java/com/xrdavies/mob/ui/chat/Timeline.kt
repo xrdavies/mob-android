@@ -40,7 +40,7 @@ import com.xrdavies.mob.viewmodel.AppState
 private val Success = Color(0xFF16A34A)
 private val Warning = Color(0xFFD97706)
 
-internal val RUNNER_LABELS = mapOf("codex" to "Codex", "claude" to "Claude Code", "pi" to "Pi")
+internal val RUNNER_LABELS = mapOf("codex" to "Codex", "claude" to "Claude Code", "pi" to "Pi", "opencode" to "OpenCode", "dsh" to "DeepSeek Harness")
 
 /** One timeline entry. [last] marks the newest turn footer (it offers Retry). */
 @Composable

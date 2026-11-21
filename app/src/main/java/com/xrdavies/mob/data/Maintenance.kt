@@ -6,6 +6,8 @@ package com.xrdavies.mob.data
 /** GET /config. Only the keys the phone changes are decoded; mobd sends more. */
 data class ConfigView(
     val rev: String,
+    /** config.json's values: the agents' sections, shown while a restart is pending. */
+    val values: Values? = null,
     val effective: Effective?,
     val editable: List<String>?,
     val overridden: List<String>?,
@@ -15,6 +17,7 @@ data class ConfigView(
     val lastRejected: Rejected?,
 ) {
     data class Effective(val runners: List<String>?)
+    data class Values(val agents: Map<String, Map<String, Any?>>?)
     data class Rejected(val at: String?, val reason: String)
 
     /** The key can be changed from here: editable, and not set by a flag or the environment. */
