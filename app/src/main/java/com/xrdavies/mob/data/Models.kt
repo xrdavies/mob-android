@@ -31,6 +31,8 @@ private val CHECK_LABELS = mapOf(
     "codex" to "Codex",
     "claude" to "Claude Code",
     "pi" to "Pi",
+    "opencode" to "OpenCode",
+    "dsh" to "DeepSeek Harness",
 )
 
 data class Runner(

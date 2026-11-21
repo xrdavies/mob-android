@@ -21,6 +21,29 @@ class MaintenanceTest {
     }
 
     @Test
+    fun agentOptionsAndSectionsDecode() {
+        // An ACP agent without efforts, options of each kind, and config sections holding args and env.
+        val v = ApiClient.gson.fromJson(
+            """{"settings":{"rev":1,"defaultAgent":"codex","agents":{}},"agents":{"opencode":{"label":"OpenCode","efforts":null,"agentModels":["opencode/big-pickle"]}},"installed":[{"name":"opencode","label":"OpenCode","state":"ready","enabled":true,"protocol":"acp","options":[{"key":"bin","label":"Program","type":"path","value":"opencode","restart":true},{"key":"mode","label":"Mode","type":"choice","choices":[{"value":"exec","label":"exec"}],"value":"exec","overridden":true},{"key":"fast","label":"Fast","type":"bool","value":true},{"key":"n","label":"N","type":"number","value":3}]}]}""",
+            SettingsInfo::class.java,
+        )
+        assertNull(v.agents?.get("opencode")?.efforts)
+        assertEquals(listOf("opencode/big-pickle"), v.agents?.get("opencode")?.agentModels)
+        val o = v.installed!!.first().options!!
+        assertEquals("acp", v.installed!!.first().protocol)
+        assertEquals(listOf("opencode", "exec", "true", "3"), o.map { AgentOption.text(it.value) })
+        assertEquals(true, o[1].overridden)
+        assertEquals("exec", o[1].choices!!.first().value)
+        val c = ApiClient.gson.fromJson(
+            """{"rev":"a","values":{"agents":{"opencode":{"bin":"/x/opencode"},"mine":{"protocol":"acp","args":["--acp"],"env":{"A":"1"}}}},"effective":{},"editable":["agents.opencode.bin"],"overridden":[],"pendingRestart":true}""",
+            ConfigView::class.java,
+        )
+        assertEquals("/x/opencode", c.values?.agents?.get("opencode")?.get("bin"))
+        assertEquals("", AgentOption.text(c.values?.agents?.get("mine")?.get("args")))
+        assertTrue(c.canEdit("agents.opencode.bin"))
+    }
+
+    @Test
     fun operationText() {
         assertEquals("Restarting…", Maintenance.text(MaintenanceOp("1", "restart", "running", step = "restarting")))
         assertEquals("Installing…", Maintenance.text(MaintenanceOp("1", "upgrade", "running", step = "swapping")))
