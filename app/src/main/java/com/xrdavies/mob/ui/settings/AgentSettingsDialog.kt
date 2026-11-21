@@ -27,6 +27,7 @@ import com.xrdavies.mob.data.ApiClient
 import com.xrdavies.mob.data.ErrorCodeBody
 import com.xrdavies.mob.data.Machine
 import com.xrdavies.mob.data.MachineSettings
+import com.xrdavies.mob.data.Maintenance
 import com.xrdavies.mob.data.SettingsInfo
 import com.xrdavies.mob.data.TurnSettings
 import com.xrdavies.mob.data.readable
@@ -62,6 +63,8 @@ fun AgentSettingsDialog(appState: AppState, machine: Machine, focus: String? = n
     var justSaved by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<List<String>?>(null) }
     val adding = remember { mutableStateMapOf<String, String>() }
+    /** Which agents mobd runs (config.json, mobd with remote maintenance). */
+    val maintenance = remember(machine) { MaintenanceModel(client) }
     fun label(name: String) = info?.agents?.get(name)?.label ?: name
 
     suspend fun load() {
@@ -76,7 +79,12 @@ fun AgentSettingsDialog(appState: AppState, machine: Machine, focus: String? = n
             message = e.readable() to true
         }
     }
-    LaunchedEffect(tick) { if (machine.needsPairing != true) load() }
+    LaunchedEffect(tick) {
+        if (machine.needsPairing != true) {
+            load()
+            maintenance.load()
+        }
+    }
     LaunchedEffect(info != null, cardTop[focus]) {
         val y = focus?.let { cardTop[it] } ?: return@LaunchedEffect
         if (info != null) scroll.animateScrollTo(y)
@@ -176,6 +184,44 @@ fun AgentSettingsDialog(appState: AppState, machine: Machine, focus: String? = n
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 val agents = v.agents.orEmpty().keys.sorted()
+                val config = maintenance.config
+                if (maintenance.supported == true && config != null) {
+                    // Agents on or off (mobd's runners): saved at once, applied by Restart to apply.
+                    val runners = config.effective?.runners.orEmpty()
+                    val names = (agents + v.installed.orEmpty().map { it.name }).distinct().sorted()
+                    ElevatedCard(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Agents on ${machine.name}", style = MaterialTheme.typography.titleMedium)
+                            for (name in names) {
+                                val installed = v.installed.orEmpty().firstOrNull { it.name == name }
+                                val on = name in runners
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(installed?.label ?: label(name))
+                                        if (installed != null && installed.state != "ready") {
+                                            Text(installed.stateLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    }
+                                    Switch(
+                                        checked = on,
+                                        enabled = config.canEdit("runners") && !maintenance.busy && !(installed?.state == "missing" && !on),
+                                        onCheckedChange = { want ->
+                                            Maintenance.runners(runners, name, want)?.let { next -> scope.launch { maintenance.save(mapOf("runners" to next)) } }
+                                        },
+                                    )
+                                }
+                            }
+                            val note = when {
+                                !config.canEdit("runners") -> "Set on ${machine.name} by a flag or the environment; change it there."
+                                runners.size == 1 -> "At least one agent stays on."
+                                else -> null
+                            }
+                            note?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            maintenance.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                        }
+                    }
+                    RestartCard(maintenance, machine.name)
+                }
                 Choice("Default agent", e.defaultAgent, agents.map { it to label(it) }) { edit = e.copy(defaultAgent = it) }
                 // An empty default sends none: the agent's own applies.
                 fun agentDefault(value: String?) = value?.let { "Agent's default ($it)" } ?: "Agent's default"
@@ -253,7 +299,8 @@ fun AgentSettingsDialog(appState: AppState, machine: Machine, focus: String? = n
                                 }
                             }
                             Text(
-                                "Install on ${machine.name}, add the agent to runners in mobd's config.json, then run mobd restart.",
+                                if (maintenance.supported == true) "Install a missing agent on ${machine.name}, then turn it on above."
+                                else "Install on ${machine.name}, add the agent to runners in mobd's config.json, then run mobd restart.",
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }

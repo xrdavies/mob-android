@@ -47,6 +47,7 @@ fun SettingsScreen(appState: AppState) {
     var showLog by remember { mutableStateOf(false) }
     var showLicenses by remember { mutableStateOf(false) }
     var agentsOf by remember { mutableStateOf<Machine?>(null) }
+    var mobdOf by remember { mutableStateOf<Machine?>(null) }
 
     Scaffold(
         topBar = {
@@ -144,10 +145,12 @@ fun SettingsScreen(appState: AppState) {
             },
             onQuality = { appState.setLiveQuality(m.id, it) },
             onAgents = { agentsOf = m },
+            onMobd = { mobdOf = m },
             onDismiss = { editing = null },
         )
     }
     agentsOf?.let { m -> AgentSettingsDialog(appState, m) { agentsOf = null } }
+    mobdOf?.let { m -> MaintenanceDialog(appState, m) { mobdOf = null } }
     pairing?.let { id ->
         PairDialog(appState, machines.firstOrNull { it.id == id }, onDismiss = { pairing = null })
     }
@@ -286,6 +289,7 @@ private fun MachineDialog(
     onPairAgain: () -> Unit,
     onQuality: (LiveQuality) -> Unit,
     onAgents: () -> Unit,
+    onMobd: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     var name by remember { mutableStateOf(initial.name) }
@@ -335,9 +339,12 @@ private fun MachineDialog(
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text("Agents", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                Text("Default agent, models, default model and effort, and permissions on this machine, shared by every device.",
+                Text("Which agents run, their models, effort and permissions, shared by every device. mobd: its version, Update and Restart.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                OutlinedButton(onClick = onAgents) { Text("Agent settings") }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onAgents) { Text("Agent settings") }
+                    OutlinedButton(onClick = onMobd) { Text("mobd") }
+                }
                 // Applies at once (an open live view reconnects), like the switch in the live view.
                 Text("Live view quality", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {

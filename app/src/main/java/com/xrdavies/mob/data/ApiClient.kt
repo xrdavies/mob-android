@@ -71,6 +71,24 @@ interface MobApi {
     @DELETE("sessions/{id}")
     suspend fun deleteSession(@Path("id") id: String): Response<Unit>
 
+    // Remote maintenance (feature "maintenance").
+    @GET("config")
+    suspend fun config(): ConfigView
+
+    /** Saves editable config.json keys; applies on the next restart. 409 when another device saved first. */
+    @PUT("config")
+    suspend fun saveConfig(@Body change: ConfigChange): Response<Unit>
+
+    /** Starts a restart or upgrade; 409 code "tasks_running" while tasks run. */
+    @POST("maintenance")
+    suspend fun startMaintenance(@Body request: MaintenanceRequest): MaintenanceStarted
+
+    @GET("maintenance/{id}")
+    suspend fun operation(@Path("id") id: String): MaintenanceOp
+
+    @GET("maintenance/latest")
+    suspend fun latestRelease(): ReleaseCheck
+
     @GET("collab")
     suspend fun getCollab(@Query("session") sessionId: String): CollabState
 
