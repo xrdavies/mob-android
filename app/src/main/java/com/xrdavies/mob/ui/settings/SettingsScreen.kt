@@ -31,6 +31,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.xrdavies.mob.data.LocalNetwork
 import com.xrdavies.mob.data.MachineAddress
 import com.xrdavies.mob.data.Machine
 import com.xrdavies.mob.viewmodel.AppState
@@ -62,6 +63,7 @@ fun SettingsScreen(appState: AppState) {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             StatusCard(appState, onPair = { pairing = it })
+            LocalNetworkCard()
 
             SettingsCard("Machines") {
                 if (machines.isEmpty()) {
@@ -238,6 +240,27 @@ private fun StatusCard(appState: AppState, onPair: (String) -> Unit) {
             )
         }
         OutlinedButton(onClick = appState::checkHealth) { Text("Test connection") }
+    }
+}
+
+/** Shown while Android 17 blocks Mob from local addresses, with the way to allow it. */
+@Composable
+private fun LocalNetworkCard() {
+    val context = LocalContext.current
+    val blocked by LocalNetwork.blocked.collectAsState()
+    if (!blocked) return
+    SettingsCard("Local network") {
+        Text(LocalNetwork.MESSAGE, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+        Text(
+            "Office computers on your network or a VPN cannot be reached until then.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedButton(onClick = {
+            context.startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", context.packageName, null))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }) { Text("Open Mob's settings") }
     }
 }
 

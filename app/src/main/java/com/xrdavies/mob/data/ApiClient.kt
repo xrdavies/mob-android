@@ -147,6 +147,8 @@ fun Throwable.readable(): String = when (this) {
     is HttpException if code() == 401 -> NEEDS_PAIRING
     is HttpException -> response()?.errorBody()?.string()
         ?.let { runCatching { JSONObject(it).getString("error") }.getOrNull() } ?: "HTTP ${code()}"
+    // Android 17 makes a denied local network look like a timeout or a refused connection.
+    is java.io.IOException if LocalNetwork.blocked.value && (this is java.net.ConnectException || this is java.net.SocketTimeoutException) -> LocalNetwork.MESSAGE
     is java.net.ConnectException, is java.net.UnknownHostException -> "Cannot reach mobd"
     is java.net.SocketTimeoutException -> "mobd did not answer in time"
     else -> message ?: javaClass.simpleName
