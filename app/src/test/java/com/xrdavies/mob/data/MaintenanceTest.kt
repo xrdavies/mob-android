@@ -28,6 +28,7 @@ class MaintenanceTest {
             SettingsInfo::class.java,
         )
         assertNull(v.agents?.get("opencode")?.efforts)
+        assertNull("older mobd: no approvals field", v.agents?.get("opencode")?.approvals)
         assertEquals(listOf("opencode/big-pickle"), v.agents?.get("opencode")?.agentModels)
         val o = v.installed!!.first().options!!
         assertEquals("acp", v.installed!!.first().protocol)

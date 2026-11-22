@@ -21,6 +21,8 @@ data class SettingsInfo(val settings: MachineSettings, val agents: Map<String, A
     data class AgentInfo(
         val label: String?, val efforts: List<String>?, val agentDefaultModel: String?, val agentDefaultEffort: String?,
         val agentModels: List<String>? = null,
+        /** false: the agent cannot ask before acting (it decides on its own); null (older mobd) means it can. */
+        val approvals: Boolean? = null,
     )
 
     /** Whether a supported agent is set up on the machine, enabled or not. */

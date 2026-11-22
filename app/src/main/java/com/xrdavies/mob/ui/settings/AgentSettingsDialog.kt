@@ -290,10 +290,18 @@ fun AgentSettingsDialog(appState: AppState, machine: Machine, focus: String? = n
                                     update { it.copy(defaultEffort = v2) }
                                 }
                             }
-                            Choice(
-                                "Permissions", a.permissions,
-                                listOf("bypass" to permissionLabel("bypass"), "approve" to permissionLabel("approve")),
-                            ) { v2 -> update { it.copy(permissions = v2) } }
+                            if (agent.approvals == false) {
+                                Choice("Permissions", "bypass", listOf("bypass" to permissionLabel("bypass")), enabled = false) {}
+                                Text(
+                                    "${label(name)} decides on its own and cannot ask you first.",
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            } else {
+                                Choice(
+                                    "Permissions", a.permissions,
+                                    listOf("bypass" to permissionLabel("bypass"), "approve" to permissionLabel("approve")),
+                                ) { v2 -> update { it.copy(permissions = v2) } }
+                            }
                             options(name)?.let { opts ->
                                 HorizontalDivider()
                                 Text("Program · saved at once, applies when mobd restarts", style = MaterialTheme.typography.labelLarge)
