@@ -191,7 +191,9 @@ fun AgentSettingsDialog(appState: AppState, machine: Machine, focus: String? = n
                 val config = maintenance.config
                 if (maintenance.supported == true && config != null) {
                     // Agents on or off (mobd's runners): saved at once, applied by Restart to apply.
-                    val runners = config.effective?.runners.orEmpty()
+                    // The switches show the saved choice (applied on restart), so a tap visibly does something.
+                    val running = config.effective?.runners.orEmpty()
+                    val runners = config.values?.runners ?: running
                     val names = (agents + v.installed.orEmpty().map { it.name }).distinct().sorted()
                     ElevatedCard(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -202,7 +204,9 @@ fun AgentSettingsDialog(appState: AppState, machine: Machine, focus: String? = n
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Column(Modifier.weight(1f)) {
                                         Text(installed?.label ?: label(name))
-                                        if (installed != null && installed.state != "ready") {
+                                        if (on != name in running) {
+                                            Text(if (on) "On after restart" else "Off after restart", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
+                                        } else if (installed != null && installed.state != "ready") {
                                             Text(installed.stateLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     }

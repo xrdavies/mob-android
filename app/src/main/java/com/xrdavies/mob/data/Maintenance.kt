@@ -17,7 +17,8 @@ data class ConfigView(
     val lastRejected: Rejected?,
 ) {
     data class Effective(val runners: List<String>?)
-    data class Values(val agents: Map<String, Map<String, Any?>>?)
+    /** runners: the saved agent list, applied by Restart to apply; null when config.json leaves the default. */
+    data class Values(val runners: List<String>? = null, val agents: Map<String, Map<String, Any?>>?)
     data class Rejected(val at: String?, val reason: String)
 
     /** The key can be changed from here: editable, and not set by a flag or the environment. */
