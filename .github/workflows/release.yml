@@ -62,8 +62,14 @@ jobs:
           test -n "$ANDROID_KEY_PASSWORD"
           export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/release.jks"
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE_PATH"
-          # AGP 9 has unit tests for the debug build only.
-          ./gradlew --no-daemon testDebugUnitTest assembleRelease
+          # AGP 9 has unit tests for the debug build only. Maven Central sometimes refuses the runner
+          # (404 or 429 Too Many Requests); Gradle keeps what it already has, so try again after a pause.
+          for attempt in 1 2 3; do
+            ./gradlew --no-daemon testDebugUnitTest assembleRelease && break
+            [ "$attempt" -lt 3 ] || exit 1
+            echo "Gradle failed (attempt $attempt); retrying in $((attempt * 60))s"
+            sleep $((attempt * 60))
+          done
           apk=app/build/outputs/apk/release/app-release.apk
           apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
           "$apksigner" verify --verbose --print-certs "$apk"

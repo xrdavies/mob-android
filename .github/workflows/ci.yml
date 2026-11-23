@@ -22,8 +22,10 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
-      - name: Unit tests and debug build
-        run: ./gradlew --no-daemon testDebugUnitTest assembleDebug
+      # The release lint as well: it is a check, and it puts the lint tool in the Gradle cache that
+      # tag builds read (they cannot write it), so releases do not download it from Maven Central.
+      - name: Unit tests, debug build and release lint
+        run: ./gradlew --no-daemon testDebugUnitTest assembleDebug lintVitalAnalyzeRelease
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
