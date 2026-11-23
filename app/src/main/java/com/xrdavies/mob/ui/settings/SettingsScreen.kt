@@ -31,6 +31,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.xrdavies.mob.data.AppUpdate
 import com.xrdavies.mob.data.LocalNetwork
 import com.xrdavies.mob.data.MachineAddress
 import com.xrdavies.mob.data.Machine
@@ -64,6 +65,7 @@ fun SettingsScreen(appState: AppState) {
         ) {
             StatusCard(appState, onPair = { pairing = it })
             LocalNetworkCard()
+            UpdateCard()
 
             SettingsCard("Machines") {
                 if (machines.isEmpty()) {
@@ -119,7 +121,8 @@ fun SettingsScreen(appState: AppState) {
             SettingsCard("About") {
                 val context = LocalContext.current
                 val version = remember { context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty() }
-                Text("Mob for Android $version")
+                val update by AppUpdate.available.collectAsState()
+                Text("Mob for Android $version" + (update?.let { " · ${it.version} available" } ?: ""))
                 Text("MIT License", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton(onClick = { showLicenses = true }, contentPadding = PaddingValues(0.dp)) { Text("Open source licences") }
             }
@@ -240,6 +243,32 @@ private fun StatusCard(appState: AppState, onPair: (String) -> Unit) {
             )
         }
         OutlinedButton(onClick = appState::checkHealth) { Text("Test connection") }
+    }
+}
+
+/** A newer Mob for Android is out: its version and the APK, which installs over this one. */
+@Composable
+private fun UpdateCard() {
+    val context = LocalContext.current
+    val update by AppUpdate.available.collectAsState()
+    val r = update ?: return
+    SettingsCard("Update available") {
+        Text("Mob for Android ${r.version} is out.", style = MaterialTheme.typography.bodyMedium)
+        Text(
+            "Download it and open it to install; it replaces this version and keeps your machines and chats.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = {
+                context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(r.download!!.url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }) { Text("Download ${r.version}") }
+            TextButton(onClick = {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/xrdavies/mob-android/releases/tag/v${r.version}"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }) { Text("What's new") }
+        }
     }
 }
 

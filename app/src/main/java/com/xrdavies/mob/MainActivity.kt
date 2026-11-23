@@ -11,7 +11,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.lifecycleScope
+import com.xrdavies.mob.data.AppUpdate
 import com.xrdavies.mob.data.LocalNetwork
+import kotlinx.coroutines.launch
 import com.xrdavies.mob.notify.Notifier
 import com.xrdavies.mob.ui.MobApp
 import com.xrdavies.mob.ui.theme.MobTheme
@@ -60,6 +63,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         LocalNetwork.refresh(this)
+        lifecycleScope.launch { AppUpdate.check(this@MainActivity) }
         appState.files.foreground = true
         appState.chat.resync()
     }
